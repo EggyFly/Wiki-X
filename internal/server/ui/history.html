@@ -1,0 +1,57 @@
+{{define "main"}}
+<section class="panel">
+  <div class="toolbar">
+    <div>
+      <h1>{{.T.history_title}}</h1>
+      <p class="muted">{{.Route}}</p>
+    </div>
+    <div class="toolbar">
+      {{if .LoggedIn}}
+      <form method="post" action="/watch" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <input type="hidden" name="route" value="{{.Route}}">
+        <input type="hidden" name="next" value="{{.Next}}">
+        {{if .Watching}}
+        <input type="hidden" name="action" value="unwatch">
+        <button class="btn" type="submit">{{.T.unwatch}}</button>
+        {{else}}
+        <input type="hidden" name="action" value="watch">
+        <button class="btn" type="submit">{{.T.watch}}</button>
+        {{end}}
+      </form>
+      {{end}}
+      <a class="btn" href="/discussion?route={{.Route}}">{{.T.discussion}}</a>
+      <a class="btn" href="{{.Route}}">{{.T.back_to_page}}</a>
+      {{if .CanEdit}}<a class="btn btn-primary" href="/edit?route={{.Route}}">{{.T.edit_page}}</a>{{end}}
+    </div>
+  </div>
+  {{if .Revisions}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{.T.version}}</th>
+          <th>{{.T.time}}</th>
+          <th>{{.T.status}}</th>
+          <th>{{.T.author}}</th>
+          <th>{{.T.summary}}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Revisions}}
+        <tr>
+          <td><a href="/revision?id={{.ID}}">#{{.ID}}</a></td>
+          <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+          <td><span class="badge badge-{{.Status}}">{{if eq .Status "published"}}{{$.T.status_published}}{{else if eq .Status "pending"}}{{$.T.status_pending}}{{else}}{{$.T.status_rejected}}{{end}}</span></td>
+          <td>{{if .AuthorName}}{{.AuthorName}}{{else}}{{$.T.system}}{{end}}</td>
+          <td>{{.Comment}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="empty">{{.T.no_history}}</p>
+  {{end}}
+</section>
+{{end}}

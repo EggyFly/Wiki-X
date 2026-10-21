@@ -1,0 +1,68 @@
+site:
+  title: Wiki-X Community Demo
+  description: PostgreSQL + accounts + review + multi-skin demo
+  language: zh-CN
+  base_url: http://localhost:8080
+  community_ui: true
+  locales:
+    - code: zh-CN
+      label: 中文
+      prefix: ""
+    - code: en
+      label: English
+      prefix: en
+  nav:
+    - title: 首页
+      href: /
+    - title: 指南
+      href: /guide/
+content:
+  source: postgres
+  dir: ../basic/content
+  max_file_size: 1048576
+  reload_interval: 0s
+server:
+  addr: ":8080"
+  access_log: false
+cache:
+  driver: auto
+  ttl: 10m
+  max_entries: 2000
+  max_bytes: 67108864
+  redis:
+    addr: ""
+    password: ""
+    db: 0
+    prefix: wikix-community
+database:
+  url: ""
+  max_conns: 10
+  auto_migrate: false
+auth:
+  secure_cookies: false
+  session_ttl: 336h
+  github:
+    client_id: ""
+    client_secret: ""
+    redirect_url: ""
+github:
+  webhook_secret: ""
+  repo: ""
+  token: ""
+  app_id: 0
+  installation_id: 0
+  private_key_file: ""
+  base_branch: main
+  content_path: ""
+  pr_import: pending
+  api_base_url: https://api.github.com
+media:
+  dir: media
+  max_size: 8388608
+theme:
+  default: default
+  disable_switch: false
+comment:
+  rate_limit: 5
+  rate_window: 1m
+  blocked_words: []

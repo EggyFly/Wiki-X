@@ -1,0 +1,39 @@
+site:
+  title: Wiki-X 示例站
+  description: 用 Go 渲染的 Markdown wiki 骨架
+  language: zh-CN
+  base_url: http://localhost:8080
+  locales:
+    - code: zh-CN
+      label: 中文
+      prefix: ""
+    - code: en
+      label: English
+      prefix: en
+  nav:
+    - title: 首页
+      href: /
+    - title: 指南
+      href: /guide/
+content:
+  source: git
+  dir: content
+  max_file_size: 1048576
+  reload_interval: 0s
+server:
+  addr: ":8080"
+  access_log: false
+cache:
+  driver: auto
+  ttl: 10m
+  max_entries: 2000
+  max_bytes: 67108864
+  redis:
+    addr: ""
+    password: ""
+    db: 0
+    prefix: wikix-example
+comment:
+  rate_limit: 5
+  rate_window: 1m
+  blocked_words: []

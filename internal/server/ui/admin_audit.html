@@ -1,0 +1,55 @@
+{{define "main"}}
+<section class="panel">
+  <div class="toolbar">
+    <div>
+      <h1>{{.T.audit_log}}</h1>
+      <p class="muted">{{.T.audit_hint}}</p>
+    </div>
+    <div class="toolbar">
+      <a class="btn" href="/admin/audit/export?q={{.Query}}&from={{.From}}&to={{.To}}">{{.T.export_csv}}</a>
+      <a class="btn" href="/admin/users">{{.T.user_admin}}</a>
+    </div>
+  </div>
+  <form method="get" action="/admin/audit" class="search-form audit-filter">
+    <input name="q" value="{{.Query}}" maxlength="100" placeholder="{{.T.audit_search}}">
+    <input type="date" name="from" value="{{.From}}" title="{{.T.audit_from}}">
+    <input type="date" name="to" value="{{.To}}" title="{{.T.audit_to}}">
+    <button class="btn" type="submit">{{.T.search_button}}</button>
+  </form>
+  {{if .Logs}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{.T.time}}</th>
+          <th>{{.T.actor}}</th>
+          <th>{{.T.action}}</th>
+          <th>{{.T.target}}</th>
+          <th>{{.T.detail}}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Logs}}
+        <tr>
+          <td>{{.CreatedAt.Format "2006-01-02 15:04:05"}}</td>
+          <td>{{if .ActorName}}{{.ActorName}}{{else}}{{$.T.system}}{{end}}</td>
+          <td><code>{{.Action}}</code></td>
+          <td>{{if .Target}}{{.Target}}{{else}}-{{end}}</td>
+          <td>{{if .Detail}}{{.Detail}}{{else}}-{{end}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="empty">{{.T.no_audit}}</p>
+  {{end}}
+  {{if gt .Pager.Pages 1}}
+  <div class="toolbar pager">
+    {{if .Pager.HasPrev}}<a class="btn" href="/admin/audit?page={{.Pager.PrevPage}}&page_size={{.Pager.Size}}&q={{.Query}}&from={{.From}}&to={{.To}}">{{.T.prev_page}}</a>{{end}}
+    <span class="muted">{{.Pager.Page}} / {{.Pager.Pages}}</span>
+    {{if .Pager.HasNext}}<a class="btn" href="/admin/audit?page={{.Pager.NextPage}}&page_size={{.Pager.Size}}&q={{.Query}}&from={{.From}}&to={{.To}}">{{.T.next_page}}</a>{{end}}
+  </div>
+  {{end}}
+</section>
+{{end}}

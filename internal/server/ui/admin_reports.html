@@ -1,0 +1,84 @@
+{{define "main"}}
+<section class="panel">
+  <div class="toolbar">
+    <div>
+      <h1>{{.T.report_admin}}</h1>
+      <p class="muted">{{.T.report_admin_hint}}</p>
+    </div>
+    <a class="btn" href="/review">{{.T.review}}</a>
+  </div>
+  <div class="toolbar report-tabs">
+    <a class="btn{{if eq .Status "open"}} btn-primary{{end}}" href="/admin/reports?status=open&page_size={{.Pager.Size}}">{{.T.report_open}}</a>
+    <a class="btn{{if eq .Status "resolved"}} btn-primary{{end}}" href="/admin/reports?status=resolved&page_size={{.Pager.Size}}">{{.T.report_resolved}}</a>
+    <a class="btn{{if eq .Status "all"}} btn-primary{{end}}" href="/admin/reports?status=all&page_size={{.Pager.Size}}">{{.T.report_all}}</a>
+  </div>
+  {{if .Reports}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{.T.page}}</th>
+          <th>{{.T.comment}}</th>
+          <th>{{.T.reporter}}</th>
+          <th>{{.T.reason}}</th>
+          <th>{{.T.time}}</th>
+          <th>{{.T.status}}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Reports}}
+        <tr>
+          <td><a href="{{.Route}}">{{.Route}}</a></td>
+          <td class="report-comment">
+            {{.Body}}
+            {{if eq .CommentStatus "hidden"}}<span class="badge badge-rejected">{{$.T.comment_hidden_badge}}</span>{{end}}
+          </td>
+          <td>{{if .ReporterName}}{{.ReporterName}}{{else}}{{$.T.system}}{{end}}</td>
+          <td>{{if .Reason}}{{.Reason}}{{else}}{{$.T.no_report_reason}}{{end}}</td>
+          <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+          <td>
+            {{if eq .Status "open"}}
+            <span class="badge badge-pending">{{$.T.report_open}}</span>
+            {{else}}
+            <span class="badge badge-published">{{$.T.report_resolved}}</span>
+            <div class="muted">{{if .ResolvedAt}}{{.ResolvedAt.Format "2006-01-02 15:04"}}{{end}}{{if .ResolvedByName}} · {{.ResolvedByName}}{{end}}</div>
+            {{end}}
+          </td>
+          <td>
+            <div class="toolbar">
+              {{if eq .Status "open"}}
+              <form method="post" action="/discussion/hide" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.CommentID}}">
+                <input type="hidden" name="hidden" value="1">
+                <input type="hidden" name="next" value="/admin/reports?notice=comment_hidden">
+                <button class="btn btn-danger" type="submit">{{$.T.hide_comment}}</button>
+              </form>
+              <form method="post" action="/discussion/resolve" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.CommentID}}">
+                <input type="hidden" name="next" value="/admin/reports?notice=reports_resolved">
+                <button class="btn" type="submit">{{$.T.resolve_reports}}</button>
+              </form>
+              {{end}}
+              <a class="btn" href="/discussion?route={{.Route}}">{{$.T.view_discussion}}</a>
+            </div>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="empty">{{.T.no_reports}}</p>
+  {{end}}
+  {{if gt .Pager.Pages 1}}
+  <div class="toolbar pager">
+    {{if .Pager.HasPrev}}<a class="btn" href="/admin/reports?status={{.Status}}&page={{.Pager.PrevPage}}&page_size={{.Pager.Size}}">{{.T.prev_page}}</a>{{end}}
+    <span class="muted">{{.Pager.Page}} / {{.Pager.Pages}}</span>
+    {{if .Pager.HasNext}}<a class="btn" href="/admin/reports?status={{.Status}}&page={{.Pager.NextPage}}&page_size={{.Pager.Size}}">{{.T.next_page}}</a>{{end}}
+  </div>
+  {{end}}
+</section>
+{{end}}

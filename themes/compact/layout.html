@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{if .Page.Title}}{{.Page.Title}} | {{end}}{{.Site.Title}}</title>
+  <meta name="description" content="{{if .Page.Description}}{{.Page.Description}}{{else}}{{.Site.Description}}{{end}}">
+  {{if .Site.BaseURL}}<link rel="canonical" href="{{.Site.BaseURL}}{{.Path}}">{{end}}
+  <link rel="icon" href="/assets/{{.Site.CurrentSkin}}/favicon.svg?v={{.Site.AssetVersion}}" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/{{.Site.CurrentSkin}}/style.css?v={{.Site.AssetVersion}}">
+</head>
+<body>
+  <a class="skip-link" href="#main">{{.T.skip_to_content}}</a>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="/">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+          <rect width="32" height="32" rx="8" fill="currentColor" opacity=".12"></rect>
+          <path d="M7 9l3.4 14h2.7l2.3-8.2L17.7 23h2.7L24 9h-3.2l-1.7 8.2L16.8 9h-2.4l-2.4 8.2L10.2 9H7z" fill="currentColor"></path>
+        </svg>
+        <span>{{.Site.Title}}</span>
+      </a>
+      <nav class="site-nav" aria-label="{{.T.home}}">
+        {{range .Site.Nav}}
+        <a href="{{.Href}}"{{if active $.Path .Href}} aria-current="page"{{end}}>{{.Title}}</a>
+        {{end}}
+        {{if .Site.Community}}
+        <a href="/search">{{.T.search}}</a>
+        {{if ne .Path "/404.html"}}<a href="/edit?route={{.Path}}">{{.T.edit}}</a>{{end}}
+        {{end}}
+      </nav>
+    </div>
+  </header>
+  <main id="main" class="wrap">
+    {{if .Fallback}}
+    <div class="notice notice-ok">
+      {{.T.fallback_notice}}
+      <a href="{{.FallbackPath}}">{{.T.view_default}}</a>
+      {{if .Site.Community}} · <a href="/edit?route={{.Path}}">{{.T.edit_translation}}</a>{{end}}
+    </div>
+    {{end}}
+    {{template "main" .}}
+  </main>
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <span>© {{.Site.Year}} {{.Site.Title}}</span>
+      {{if gt (len .Locales) 1}}
+      <div class="locale-switch" aria-label="{{.T.language}}">
+        {{range .Locales}}
+        <a href="{{.Href}}"{{if .Active}} aria-current="true"{{end}}>{{.Label}}</a>
+        {{end}}
+      </div>
+      {{end}}
+      {{if .Site.Switchable}}
+      <div class="skin-switch" aria-label="{{.T.skin_switch}}">
+        {{range .Site.Skins}}
+        <a href="/-/skin?name={{.Name}}&next={{$.Path}}"{{if eq .Name $.Site.CurrentSkin}} aria-current="true"{{end}}>{{.Label}}</a>
+        {{end}}
+      </div>
+      {{end}}
+      <span>Powered by Wiki-X</span>
+    </div>
+  </footer>
+</body>
+</html>

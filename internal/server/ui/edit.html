@@ -1,0 +1,106 @@
+{{define "main"}}
+<form method="post" action="/edit/save" class="panel form-grid">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <input type="hidden" name="base_version" value="{{.BaseVersion}}">
+  <div class="toolbar">
+    <div>
+      <h1>{{if .IsNew}}{{.T.new_page_title}}{{else}}{{.T.edit_title}}{{end}}</h1>
+      <p class="muted">{{if .IsNew}}{{.T.new_page_hint}}{{else}}{{.Route}}{{end}}{{if .Protected}} <span class="badge badge-pending">{{.T.page_protected}}</span>{{end}}</p>
+    </div>
+    {{if .HistoryURL}}<a class="btn" href="{{.HistoryURL}}"{{if .PRMode}} target="_blank" rel="noopener noreferrer"{{end}}>{{.T.history}}</a>{{end}}
+  </div>
+
+  {{if .IsNew}}
+  <label class="field">
+    <span>{{.T.route}}</span>
+    <input name="route" value="{{.Route}}" placeholder="{{.T.route_hint}}" maxlength="2048" required>
+  </label>
+  {{else}}
+  <input type="hidden" name="route" value="{{.Route}}">
+  {{end}}
+
+  <label class="field">
+    <span>{{.T.title}}</span>
+    <input name="title" value="{{.PageTitle}}" maxlength="200" required>
+  </label>
+  <label class="field">
+    <span>{{.T.description}}</span>
+    <input name="description" value="{{.Description}}" maxlength="500">
+  </label>
+  <label class="field">
+    <span>{{.T.tags}}</span>
+    <input name="tags" value="{{.Tags}}" maxlength="1000">
+  </label>
+  <label class="field">
+    <span>{{.T.translation_key}}</span>
+    <input name="translation_key" value="{{.TranslationKey}}" maxlength="200" placeholder="{{.T.translation_key_hint}}">
+  </label>
+  <div class="field">
+    <span>{{.T.body}}</span>
+    <div class="editor-shell">
+      <div class="md-toolbar"
+        data-preview-label="{{.T.preview}}"
+        data-close-label="{{.T.close_preview}}"
+        data-preview-error="{{.T.preview_failed}}">
+        <button type="button" data-md="bold" title="{{.T.md_bold}}">B</button>
+        <button type="button" data-md="italic" title="{{.T.md_italic}}"><em>I</em></button>
+        <button type="button" data-md="heading" title="{{.T.md_heading}}">H2</button>
+        <button type="button" data-md="link" title="{{.T.md_link}}">{{.T.md_link}}</button>
+        <button type="button" data-md="list" title="{{.T.md_list}}">{{.T.md_list}}</button>
+        <button type="button" data-md="code" title="{{.T.md_code}}">{{.T.md_code}}</button>
+        <button type="button" data-md="quote" title="{{.T.md_quote}}">{{.T.md_quote}}</button>
+        <button type="button" data-md="table" title="{{.T.md_table}}">{{.T.md_table}}</button>
+        <button type="button" data-md="infobox" title="{{.T.md_infobox}}">{{.T.md_infobox}}</button>
+        <button type="button" data-md="notice" title="{{.T.md_notice}}">{{.T.md_notice}}</button>
+        <button type="button" data-md="gallery" title="{{.T.md_gallery}}">{{.T.md_gallery}}</button>
+        <button type="button" data-md="collapse" title="{{.T.md_collapse}}">{{.T.md_collapse}}</button>
+        <button type="button" id="preview-toggle" class="preview-toggle" aria-pressed="false">{{.T.preview}}</button>
+      </div>
+      <textarea id="body" name="body" class="editor" required>{{.Body}}</textarea>
+      <div id="preview" class="preview prose" hidden></div>
+    </div>
+  </div>
+  <label class="field">
+    <span>{{.T.edit_summary}}</span>
+    <input name="comment" value="{{.Comment}}" maxlength="500" placeholder="{{.T.edit_summary_hint}}">
+  </label>
+  <div class="toolbar">
+    <button class="btn btn-primary" type="submit">{{.T.save}}</button>
+    <span class="muted">{{if .PRMode}}{{.T.publish_hint_pr}}{{else if .CanReview}}{{.T.publish_hint_admin}}{{else}}{{.T.publish_hint_pending}}{{end}}</span>
+  </div>
+</form>
+
+{{if and .CanProtect (not .IsNew)}}
+<section class="panel">
+  <div class="toolbar">
+    <div>
+      <h2>{{.T.protect}}</h2>
+      <p class="muted">{{.T.protected_hint}}</p>
+    </div>
+    <form method="post" action="/protect" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="route" value="{{.Route}}">
+      {{if .Protected}}
+      <input type="hidden" name="protected" value="0">
+      <button class="btn" type="submit">{{.T.unprotect}}</button>
+      {{else}}
+      <input type="hidden" name="protected" value="1">
+      <button class="btn" type="submit">{{.T.protect}}</button>
+      {{end}}
+    </form>
+  </div>
+</section>
+{{end}}
+
+{{if .CanUpload}}
+<section class="panel">
+  <h2>{{.T.upload_title}}</h2>
+  <form id="upload-form" class="toolbar" method="post" action="/upload" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <input type="file" name="file" accept="image/png,image/jpeg,image/gif,image/webp" required>
+    <button class="btn" type="submit">{{.T.upload_insert}}</button>
+    <span id="upload-status" class="muted"></span>
+  </form>
+</section>
+{{end}}
+{{end}}

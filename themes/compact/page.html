@@ -1,0 +1,25 @@
+{{define "main"}}
+<article class="page">
+  <header class="page-head">
+    <h1>{{.Page.Title}}</h1>
+    {{if .Page.Description}}<p class="lead">{{.Page.Description}}</p>{{end}}
+    {{if or .Page.Updated .Page.Tags .Page.Protected}}
+    <div class="page-meta">
+      {{if .Page.Updated}}<span class="updated">{{.T.updated}} {{.Page.Updated}}</span>{{end}}
+      {{if .Page.Protected}}<span class="lock-badge">{{.T.page_protected}}</span>{{end}}
+      {{range .Page.Tags}}<span class="tag">{{.}}</span>{{end}}
+    </div>
+    {{end}}
+  </header>
+  {{if .Site.Community}}
+  <nav class="page-actions">
+    {{if .Site.History}}<a href="/history?route={{if .Fallback}}{{.FallbackPath}}{{else}}{{.Path}}{{end}}">{{.T.history}}</a>{{end}}
+    <a href="/discussion?route={{if .Fallback}}{{.FallbackPath}}{{else}}{{.Path}}{{end}}">{{.T.discussion}}</a>
+    {{if .Site.Translations}}<a href="/translations">{{.T.translations}}</a>{{end}}
+  </nav>
+  {{end}}
+  <div class="prose">
+    {{.Content}}
+  </div>
+</article>
+{{end}}

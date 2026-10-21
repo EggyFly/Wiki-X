@@ -1,0 +1,77 @@
+{{define "main"}}
+<section class="panel">
+  <h2>{{.T.create_group}}</h2>
+  <form method="post" action="/admin/groups/create" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label class="field">
+      <span>{{.T.group_name}}</span>
+      <input name="name" maxlength="64" required>
+    </label>
+    <div class="group-form">
+      {{range .Rights}}
+      <label><input type="checkbox" name="rights" value="{{.}}"> {{index $.T (printf "right_%s" .)}}</label>
+      {{end}}
+    </div>
+    <div class="toolbar">
+      <button class="btn btn-primary" type="submit">{{.T.create_group}}</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="toolbar">
+    <div>
+      <h1>{{.T.group_admin}}</h1>
+      <p class="muted">{{.T.group_admin_hint}}</p>
+    </div>
+    <a class="btn" href="/admin/users">{{.T.user_admin}}</a>
+  </div>
+  {{if .Groups}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{.T.group_name}}</th>
+          <th>{{.T.rights}}</th>
+          <th>{{.T.group_users}}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Groups}}
+        <tr>
+          <td>
+            {{.Group.Name}}
+            {{if .Group.Builtin}}<span class="badge badge-pending">{{$.T.group_builtin}}</span>{{end}}
+          </td>
+          <td>
+            <form method="post" action="/admin/groups/rights" class="group-form">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.Group.ID}}">
+              {{range .Rights}}
+              <label><input type="checkbox" name="rights" value="{{.Name}}"{{if .Selected}} checked{{end}}> {{index $.T (printf "right_%s" .Name)}}</label>
+              {{end}}
+              <button class="btn" type="submit">{{$.T.save}}</button>
+            </form>
+          </td>
+          <td>{{.Group.UserCount}}</td>
+          <td>
+            {{if not .Group.Builtin}}
+            <details class="danger-zone">
+              <summary>{{$.T.delete_group}}</summary>
+              <form method="post" action="/admin/groups/delete" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.Group.ID}}">
+                <button class="btn btn-danger" type="submit">{{$.T.confirm_delete_group}}</button>
+              </form>
+            </details>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+</section>
+{{end}}

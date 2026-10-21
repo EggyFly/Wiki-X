@@ -1,0 +1,38 @@
+{{define "main"}}
+<section class="panel">
+  <div class="toolbar">
+    <div>
+      <h1>{{.T.review_title}}</h1>
+      <p class="muted">{{len .Revisions}} {{.T.pending_revisions}}</p>
+    </div>
+  </div>
+  {{if .Revisions}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{.T.version}}</th>
+          <th>{{.T.page}}</th>
+          <th>{{.T.author}}</th>
+          <th>{{.T.time}}</th>
+          <th>{{.T.summary}}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Revisions}}
+        <tr>
+          <td><a href="/revision?id={{.ID}}">#{{.ID}}</a></td>
+          <td>{{.Route}}</td>
+          <td>{{if .AuthorName}}{{.AuthorName}}{{else}}{{$.T.system}}{{end}}</td>
+          <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+          <td>{{.Comment}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="empty">{{.T.no_pending}}</p>
+  {{end}}
+</section>
+{{end}}

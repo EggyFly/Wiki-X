@@ -1,0 +1,102 @@
+{{define "main"}}
+<section class="panel">
+  <div class="toolbar">
+    <div>
+      <h1>{{.T.discussion_title}}: {{.PageTitle}}</h1>
+      <p class="muted">{{.Route}}</p>
+    </div>
+    <div class="toolbar">
+      {{if .LoggedIn}}
+      <form method="post" action="/watch" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <input type="hidden" name="route" value="{{.Route}}">
+        <input type="hidden" name="next" value="{{.Next}}">
+        {{if .Watching}}
+        <input type="hidden" name="action" value="unwatch">
+        <button class="btn" type="submit">{{.T.unwatch}}</button>
+        {{else}}
+        <input type="hidden" name="action" value="watch">
+        <button class="btn" type="submit">{{.T.watch}}</button>
+        {{end}}
+      </form>
+      {{end}}
+      {{if .History}}<a class="btn" href="/history?route={{.Route}}">{{.T.history}}</a>{{end}}
+      <a class="btn" href="{{.Route}}">{{.T.back_to_page}}</a>
+    </div>
+  </div>
+  {{if .Comments}}
+  <ol class="comment-list">
+    {{range .Comments}}
+    <li class="comment{{if eq .Status "hidden"}} comment-hidden{{end}}">
+      <div class="comment-head">
+        <span class="comment-author">{{if .UserName}}{{.UserName}}{{else}}{{$.T.system}}{{end}}</span>
+        <time>{{.CreatedAt.Format "2006-01-02 15:04"}}</time>
+        {{if eq .Status "hidden"}}<span class="badge badge-rejected">{{$.T.comment_hidden_badge}}</span>{{end}}
+        {{if and $.CanReview (gt .Reports 0)}}
+        <details class="report-box reviewer-reports">
+          <summary class="badge badge-pending">{{$.T.reports}} {{.Reports}}</summary>
+          <ul class="report-reasons">
+            {{range .ReportReasons}}<li>{{if .}}{{.}}{{else}}{{$.T.no_report_reason}}{{end}}</li>{{end}}
+          </ul>
+          <form method="post" action="/discussion/resolve" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <button class="link-button" type="submit">{{$.T.resolve_reports}}</button>
+          </form>
+        </details>
+        {{end}}
+        {{if $.CanReview}}
+        <form method="post" action="/discussion/hide" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <input type="hidden" name="id" value="{{.ID}}">
+          {{if eq .Status "hidden"}}
+          <input type="hidden" name="hidden" value="0">
+          <button class="link-button" type="submit">{{$.T.show_comment}}</button>
+          {{else}}
+          <input type="hidden" name="hidden" value="1">
+          <button class="link-button" type="submit">{{$.T.hide_comment}}</button>
+          {{end}}
+        </form>
+        {{end}}
+      </div>
+      <p class="comment-body">{{.Body}}</p>
+      {{if and $.LoggedIn (eq .Status "visible")}}
+      <div class="comment-foot">
+        <details class="report-box">
+          <summary>{{$.T.report_comment}}</summary>
+          <form method="post" action="/discussion/report" class="report-form">
+            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <input name="reason" maxlength="200" placeholder="{{$.T.report_reason}}">
+            <button class="btn" type="submit">{{$.T.report_submit}}</button>
+          </form>
+        </details>
+      </div>
+      {{end}}
+    </li>
+    {{end}}
+  </ol>
+  {{else}}
+  <p class="empty">{{.T.no_comments}}</p>
+  {{end}}
+</section>
+
+{{if .LoggedIn}}
+<section class="panel">
+  <h2>{{.T.post_comment}}</h2>
+  <form method="post" action="/discussion/add" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <input type="hidden" name="route" value="{{.Route}}">
+    <label class="field">
+      <span>{{.T.comment_placeholder}}</span>
+      <textarea name="body" rows="5" maxlength="4000" required></textarea>
+    </label>
+    <div class="toolbar">
+      <button class="btn btn-primary" type="submit">{{.T.post_comment}}</button>
+    </div>
+  </form>
+</section>
+{{else}}
+<p class="muted">{{.T.login_to_comment}} <a href="/login">{{.T.login}}</a></p>
+{{end}}
+{{end}}

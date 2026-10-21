@@ -1,0 +1,31 @@
+{{define "main"}}
+<section class="panel auth-panel">
+  <h1>{{.T.login_title}}</h1>
+  {{if not .HasUsers}}
+  <p class="muted">{{.T.no_users}}</p>
+  {{end}}
+  {{if .HasUsers}}
+  <form method="post" action="/login" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <input type="hidden" name="next" value="{{.Next}}">
+    <label class="field">
+      <span>{{.T.username}}</span>
+      <input name="username" autocomplete="username" required maxlength="100">
+    </label>
+    <label class="field">
+      <span>{{.T.password}}</span>
+      <input type="password" name="password" autocomplete="current-password" required maxlength="128">
+    </label>
+    <label class="field">
+      <span>{{.T.totp_code_login}}</span>
+      <input name="totp_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+    </label>
+    <button class="btn btn-primary" type="submit">{{.T.login_button}}</button>
+  </form>
+  {{end}}
+  {{if .GitHubEnabled}}
+  <div class="auth-divider"><span>{{.T.or}}</span></div>
+  <a class="btn" href="/auth/github">{{.T.github_login}}</a>
+  {{end}}
+</section>
+{{end}}

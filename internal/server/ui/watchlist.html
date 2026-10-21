@@ -1,0 +1,46 @@
+{{define "main"}}
+<section class="panel">
+  <div class="toolbar">
+    <div>
+      <h1>{{.T.watchlist_title}}</h1>
+      <p class="muted">{{.T.watch_hint}}</p>
+    </div>
+  </div>
+  {{if .Pages}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{.T.page}}</th>
+          <th>{{.T.last_change}}</th>
+          <th>{{.T.author}}</th>
+          <th>{{.T.summary}}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Pages}}
+        <tr>
+          <td><a href="{{.Route}}">{{.Title}}</a></td>
+          <td>{{if .ChangedAt}}{{if eq .Source "git"}}{{.ChangedAt.Format "2006-01-02"}}{{else}}{{.ChangedAt.Format "2006-01-02 15:04"}}{{end}}{{else}}-{{end}}</td>
+          <td>{{if .AuthorName}}{{.AuthorName}}{{else if eq .Source "git"}}{{$.T.git_source}}{{else}}{{$.T.system}}{{end}}</td>
+          <td>{{.Comment}}</td>
+          <td>
+            <form method="post" action="/watch" class="inline-form">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="route" value="{{.Route}}">
+              <input type="hidden" name="action" value="unwatch">
+              <input type="hidden" name="next" value="/watchlist">
+              <button class="link-button" type="submit">{{$.T.unwatch}}</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="empty">{{.T.no_watched}}</p>
+  {{end}}
+</section>
+{{end}}

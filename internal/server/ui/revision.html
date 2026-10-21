@@ -1,0 +1,36 @@
+{{define "main"}}
+<section class="panel">
+  <div class="toolbar">
+    <div>
+      <h1>{{.T.revision_title}} #{{.Revision.ID}}</h1>
+      <p class="muted">{{.Revision.Route}} · {{if .Revision.AuthorName}}{{.Revision.AuthorName}}{{else}}{{.T.system}}{{end}} · {{.Revision.CreatedAt.Format "2006-01-02 15:04"}}</p>
+    </div>
+    <a class="btn" href="/history?route={{.Revision.Route}}">{{.T.back_history}}</a>
+  </div>
+  <p>
+    <span class="badge badge-{{.Revision.Status}}">{{if eq .Revision.Status "published"}}{{.T.status_published}}{{else if eq .Revision.Status "pending"}}{{.T.status_pending}}{{else}}{{.T.status_rejected}}{{end}}</span>
+    {{if .Revision.Comment}}{{.Revision.Comment}}{{end}}
+  </p>
+  <dl class="meta-list">
+    <dt>{{.T.title_label}}</dt><dd>{{.Revision.Title}}</dd>
+    {{if .Revision.Description}}<dt>{{.T.description_label}}</dt><dd>{{.Revision.Description}}</dd>{{end}}
+    {{if .Revision.Tags}}<dt>{{.T.tags_label}}</dt><dd>{{range .Revision.Tags}}<span class="tag">{{.}}</span>{{end}}</dd>{{end}}
+  </dl>
+  <pre class="diff">{{.Diff}}</pre>
+  {{if and .CanReview (eq .Revision.Status "pending")}}
+  <div class="toolbar review-actions">
+    <form method="post" action="/review/approve">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="id" value="{{.Revision.ID}}">
+      <button class="btn btn-primary" type="submit">{{.T.approve}}</button>
+    </form>
+    <form method="post" action="/review/reject" class="toolbar">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="id" value="{{.Revision.ID}}">
+      <input name="reason" placeholder="{{.T.reject_reason}}" maxlength="500">
+      <button class="btn btn-danger" type="submit">{{.T.reject}}</button>
+    </form>
+  </div>
+  {{end}}
+</section>
+{{end}}

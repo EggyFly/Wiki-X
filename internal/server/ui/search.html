@@ -1,0 +1,22 @@
+{{define "main"}}
+<section class="panel">
+  <h1>{{.T.search_title}}</h1>
+  <form method="get" action="/search" class="search-form">
+    <input name="q" value="{{.Query}}" placeholder="{{.T.search_placeholder}}" autofocus maxlength="200">
+    <button class="btn btn-primary" type="submit">{{.T.search_button}}</button>
+  </form>
+  {{if .Query}}
+    {{if .Results}}
+    <p class="muted">{{len .Results}} {{.T.results}}</p>
+    {{range .Results}}
+    <article class="search-hit">
+      <h2><a href="{{.Route}}">{{.Title}}</a></h2>
+      <p class="muted">{{.Snippet}}</p>
+    </article>
+    {{end}}
+    {{else}}
+    <p class="empty">{{.T.no_results}}</p>
+    {{end}}
+  {{end}}
+</section>
+{{end}}

@@ -1,0 +1,8 @@
+{{define "main"}}
+<section class="panel">
+  <h1>{{.T.pr_created_title}}</h1>
+  <p>{{.T.pr_created_text}}</p>
+  <p><a class="btn btn-primary" href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.T.open_pr}} #{{.Number}}</a></p>
+  <p><a class="btn" href="{{.Route}}">{{.T.back_to_page}}</a></p>
+</section>
+{{end}}

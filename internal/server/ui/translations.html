@@ -1,0 +1,56 @@
+{{define "main"}}
+<section class="panel">
+  <div class="toolbar">
+    <div>
+      <h1>{{.T.translation_admin}}</h1>
+      <p class="muted">{{.T.translation_hint}}</p>
+    </div>
+  </div>
+  {{if .Rows}}
+  <div class="translation-groups">
+    {{range .Rows}}
+    <article class="translation-group">
+      <header>
+        <h2>{{.Key}}</h2>
+        {{if .DefaultRoute}}
+        <a href="{{.DefaultRoute}}">{{.DefaultTitle}}</a>
+        {{else}}
+        <span class="muted">{{$.T.translation_no_default}}</span>
+        {{end}}
+      </header>
+      <ul class="translation-list">
+        {{range .Locales}}
+        <li>
+          <span class="tag">{{.Label}}</span>
+          {{if .Missing}}
+          <span class="badge badge-rejected">{{$.T.translation_missing}}</span>
+          {{if .EditURL}}<a href="{{.EditURL}}">{{$.T.create_translation}}</a>{{end}}
+          {{else}}
+          <a href="{{.Route}}">{{.Title}}</a>
+          {{if .Outdated}}
+          <span class="badge badge-pending">{{$.T.translation_outdated}}</span>
+          {{else if .Unknown}}
+          <span class="badge badge-pending">{{$.T.translation_unknown}}</span>
+          {{else}}
+          <span class="badge badge-published">{{$.T.translation_current}}</span>
+          {{end}}
+          <a href="{{.EditURL}}">{{$.T.update_translation}}</a>
+          {{end}}
+        </li>
+        {{end}}
+      </ul>
+    </article>
+    {{end}}
+  </div>
+  {{else}}
+  <p class="empty">{{.T.no_translation_groups}}</p>
+  {{end}}
+  {{if gt .Pager.Pages 1}}
+  <div class="toolbar pager">
+    {{if .Pager.HasPrev}}<a class="btn" href="/translations?page={{.Pager.PrevPage}}&page_size={{.Pager.Size}}">{{.T.prev_page}}</a>{{end}}
+    <span class="muted">{{.Pager.Page}} / {{.Pager.Pages}}</span>
+    {{if .Pager.HasNext}}<a class="btn" href="/translations?page={{.Pager.NextPage}}&page_size={{.Pager.Size}}">{{.T.next_page}}</a>{{end}}
+  </div>
+  {{end}}
+</section>
+{{end}}

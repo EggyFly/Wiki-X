@@ -1,0 +1,132 @@
+{{define "main"}}
+<section class="panel">
+  <h2>{{.T.create_user}}</h2>
+  <form method="post" action="/admin/users/create" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label class="field">
+      <span>{{.T.username}}</span>
+      <input name="name" maxlength="64" required>
+    </label>
+    <label class="field">
+      <span>{{.T.account_email}}</span>
+      <input name="email" type="email" maxlength="254">
+    </label>
+    <label class="field">
+      <span>{{.T.password}}</span>
+      <input name="password" type="password" minlength="8" maxlength="128" required>
+    </label>
+    <div class="toolbar">
+      <button class="btn btn-primary" type="submit">{{.T.create_user}}</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="toolbar">
+    <div>
+      <h1>{{.T.user_admin}}</h1>
+      <p class="muted">{{.T.user_admin_hint}}</p>
+    </div>
+    <div class="toolbar">
+      <a class="btn" href="/admin/groups">{{.T.group_admin}}</a>
+      <a class="btn" href="/admin/audit">{{.T.audit_log}}</a>
+    </div>
+  </div>
+  {{if .Users}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>{{.T.username}}</th>
+          <th>{{.T.account_email}}</th>
+          <th>{{.T.groups}}</th>
+          <th>{{.T.status}}</th>
+          <th>{{.T.created}}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Users}}
+        <tr>
+          <td>#{{.User.ID}}</td>
+          <td>
+            {{.User.Name}}
+            {{if .User.TOTPEnabled}}<span class="badge badge-published">2FA</span>{{end}}
+            {{if .IsSelf}}<span class="badge badge-pending">{{$.T.current_account}}</span>{{end}}
+          </td>
+          <td>{{if .User.Email}}{{.User.Email}}{{else}}-{{end}}</td>
+          <td>
+            {{if .IsSelf}}
+              {{if .User.Groups}}{{range .User.Groups}}<span class="tag">{{.}}</span>{{end}}{{else}}-{{end}}
+            {{else}}
+            <form method="post" action="/admin/users/groups" class="group-form">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.User.ID}}">
+              {{range .Choices}}
+              <label><input type="checkbox" name="groups" value="{{.Name}}"{{if .Selected}} checked{{end}}> {{.Name}}</label>
+              {{end}}
+              <button class="btn" type="submit">{{$.T.save}}</button>
+            </form>
+            {{end}}
+          </td>
+          <td>
+            {{if .User.Disabled}}
+            <span class="badge badge-rejected">{{$.T.disabled}}</span>
+            {{else}}
+            <span class="badge badge-published">{{$.T.active}}</span>
+            {{end}}
+          </td>
+          <td>{{.User.CreatedAt.Format "2006-01-02"}}</td>
+          <td>
+            {{if not .IsSelf}}
+            {{if .User.TOTPEnabled}}
+            <details class="danger-zone">
+              <summary>{{$.T.admin_totp_disable}}</summary>
+              <form method="post" action="/admin/users/totp/disable" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.User.ID}}">
+                <button class="btn btn-danger" type="submit">{{$.T.admin_totp_confirm}}</button>
+              </form>
+            </details>
+            {{end}}
+            <form method="post" action="/admin/users/status" class="inline-form">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.User.ID}}">
+              {{if .User.Disabled}}
+              <input type="hidden" name="disabled" value="0">
+              <button class="btn" type="submit">{{$.T.enable}}</button>
+              {{else}}
+              <input type="hidden" name="disabled" value="1">
+              <button class="btn btn-danger" type="submit">{{$.T.disable}}</button>
+              {{end}}
+            </form>
+            <details class="password-reset">
+              <summary>{{$.T.reset_password}}</summary>
+              <form method="post" action="/admin/users/password" class="report-form">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.User.ID}}">
+                <input type="password" name="password" minlength="8" maxlength="128" placeholder="{{$.T.new_password}}" required>
+                <input type="password" name="confirm" minlength="8" maxlength="128" placeholder="{{$.T.confirm_password}}" required>
+                <button class="btn btn-danger" type="submit">{{$.T.reset_password}}</button>
+              </form>
+            </details>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="empty">{{.T.no_users_admin}}</p>
+  {{end}}
+  {{if gt .Pager.Pages 1}}
+  <div class="toolbar pager">
+    {{if .Pager.HasPrev}}<a class="btn" href="/admin/users?page={{.Pager.PrevPage}}&page_size={{.Pager.Size}}">{{.T.prev_page}}</a>{{end}}
+    <span class="muted">{{.Pager.Page}} / {{.Pager.Pages}}</span>
+    {{if .Pager.HasNext}}<a class="btn" href="/admin/users?page={{.Pager.NextPage}}&page_size={{.Pager.Size}}">{{.T.next_page}}</a>{{end}}
+  </div>
+  {{end}}
+</section>
+{{end}}
