@@ -14,10 +14,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"wikix/internal/auth"
-	"wikix/internal/config"
-	"wikix/internal/site"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/auth"
+	"github.com/EggyFly/Wiki-X/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/site"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 func TestGitModeCreatesPullRequest(t *testing.T) {

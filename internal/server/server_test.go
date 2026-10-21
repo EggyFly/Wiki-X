@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"wikix/internal/config"
-	"wikix/internal/site"
+	"github.com/EggyFly/Wiki-X/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/site"
 )
 
 func TestHandler(t *testing.T) {

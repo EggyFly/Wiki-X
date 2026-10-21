@@ -9,12 +9,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"wikix/internal/content"
+	"github.com/EggyFly/Wiki-X/internal/content"
 )
 
 func (s *Store) Load(ctx context.Context) ([]*content.Page, error) {
-	rows, err := s.pool.Query(ctx, `SELECT route, title, description, body, tags, version, translation_key, protected, updated_at
-		FROM pages WHERE draft = false ORDER BY route`)
+	rows, err := s.pool.Query(ctx, `SELECT p.route, p.title, p.description, p.body, p.tags, p.version, p.translation_key,
+			p.protected, p.protection_level, p.updated_at, COALESCE(e.name, '')
+		FROM pages p LEFT JOIN entities e ON e.id = p.entity_id
+		WHERE p.draft = false AND p.deleted_at IS NULL ORDER BY p.route`)
 	if err != nil {
 		return nil, err
 	}
@@ -24,7 +26,7 @@ func (s *Store) Load(ctx context.Context) ([]*content.Page, error) {
 	for rows.Next() {
 		var page content.Page
 		var updatedAt time.Time
-		if err := rows.Scan(&page.Route, &page.Title, &page.Description, &page.Body, &page.Tags, &page.Version, &page.TranslationKey, &page.Protected, &updatedAt); err != nil {
+		if err := rows.Scan(&page.Route, &page.Title, &page.Description, &page.Body, &page.Tags, &page.Version, &page.TranslationKey, &page.Protected, &page.ProtectionLevel, &updatedAt, &page.EntityKey); err != nil {
 			return nil, err
 		}
 		page.Key = page.Route
@@ -39,12 +41,14 @@ func (s *Store) Load(ctx context.Context) ([]*content.Page, error) {
 }
 
 func (s *Store) GetPage(ctx context.Context, route string) (*PageRecord, error) {
-	row := s.pool.QueryRow(ctx, `SELECT id, route, title, description, body, tags, draft, version, translation_key,
-			translation_base_version, protected, updated_at, current_revision_id
-		FROM pages WHERE route = $1`, route)
+	row := s.pool.QueryRow(ctx, `SELECT p.id, p.route, p.title, p.description, p.body, p.tags, p.draft, p.version,
+			p.translation_key, p.translation_base_version, p.protected, p.protection_level, p.updated_at, p.current_revision_id,
+			p.entity_id, COALESCE(e.name, ''), p.deleted_at, p.deleted_by, p.delete_reason
+		FROM pages p LEFT JOIN entities e ON e.id = p.entity_id WHERE p.route = $1`, route)
 	var page PageRecord
 	if err := row.Scan(&page.ID, &page.Route, &page.Title, &page.Description, &page.Body, &page.Tags, &page.Draft,
-		&page.Version, &page.TranslationKey, &page.TranslationBaseVersion, &page.Protected, &page.UpdatedAt, &page.CurrentRevisionID); err != nil {
+		&page.Version, &page.TranslationKey, &page.TranslationBaseVersion, &page.Protected, &page.ProtectionLevel, &page.UpdatedAt,
+		&page.CurrentRevisionID, &page.EntityID, &page.EntityKey, &page.DeletedAt, &page.DeletedBy, &page.DeleteReason); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -70,17 +74,20 @@ func (s *Store) CreateRevision(ctx context.Context, in RevisionInput) (*Revision
 
 	var pageID int64
 	var currentVersion string
-	var draft, protected bool
+	var draft bool
+	var protectionLevel string
 	var currentRevisionID *int64
-	err = tx.QueryRow(ctx, `SELECT id, version, draft, protected, current_revision_id FROM pages WHERE route = $1 FOR UPDATE`, in.Route).
-		Scan(&pageID, &currentVersion, &draft, &protected, &currentRevisionID)
+	var deletedAt *time.Time
+	err = tx.QueryRow(ctx, `SELECT id, version, draft, protection_level, current_revision_id, deleted_at
+		FROM pages WHERE route = $1 FOR UPDATE`, in.Route).
+		Scan(&pageID, &currentVersion, &draft, &protectionLevel, &currentRevisionID, &deletedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if in.BaseVersion != "" {
 			return nil, ErrEditConflict
 		}
-		err = tx.QueryRow(ctx, `INSERT INTO pages (route, title, description, body, tags, draft, version, translation_key, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now()) RETURNING id`,
-			in.Route, in.Title, in.Description, in.Body, tags, !in.Publish, version, in.TranslationKey).Scan(&pageID)
+		err = tx.QueryRow(ctx, `INSERT INTO pages (route, title, description, body, tags, draft, version, translation_key, entity_id, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING id`,
+			in.Route, in.Title, in.Description, in.Body, tags, !in.Publish, version, in.TranslationKey, in.EntityID).Scan(&pageID)
 		if err != nil {
 			if isUniqueViolation(err) {
 				return nil, ErrEditConflict
@@ -90,11 +97,19 @@ func (s *Store) CreateRevision(ctx context.Context, in RevisionInput) (*Revision
 	} else if err != nil {
 		return nil, err
 	} else {
+		if deletedAt != nil {
+			return nil, ErrNotFound
+		}
 		if draft || in.BaseVersion == "" || in.BaseVersion != currentVersion {
 			return nil, ErrEditConflict
 		}
-		if protected && !in.AllowProtected {
-			return nil, ErrProtected
+		if protectionLevel == "" {
+			protectionLevel = ProtectionNone
+		}
+		if !in.AllowProtected {
+			if protectionLevel == ProtectionFull || (protectionLevel == ProtectionSemi && in.Publish) {
+				return nil, ErrProtected
+			}
 		}
 	}
 
@@ -106,11 +121,11 @@ func (s *Store) CreateRevision(ctx context.Context, in RevisionInput) (*Revision
 	var createdAt time.Time
 	var publishedAt *time.Time
 	err = tx.QueryRow(ctx, `INSERT INTO page_revisions
-		(page_id, title, description, body, tags, author_id, comment, status, base_revision_id, version, translation_key, translation_base_version, published_at)
-		VALUES ($1, $2, $3, $4, $5, NULLIF($6, 0), $7, $8, $9, $10, $11, $12, CASE WHEN $13 THEN now() ELSE NULL END)
+		(page_id, title, description, body, tags, author_id, comment, status, base_revision_id, version, translation_key, translation_base_version, entity_id, published_at)
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6, 0), $7, $8, $9, $10, $11, $12, $13, CASE WHEN $14 THEN now() ELSE NULL END)
 		RETURNING id, created_at, published_at`,
 		pageID, in.Title, in.Description, in.Body, tags, in.AuthorID, in.Comment, status, currentRevisionID,
-		version, in.TranslationKey, in.TranslationBaseVersion, in.Publish).
+		version, in.TranslationKey, in.TranslationBaseVersion, in.EntityID, in.Publish).
 		Scan(&revisionID, &createdAt, &publishedAt)
 	if err != nil {
 		return nil, err
@@ -119,8 +134,8 @@ func (s *Store) CreateRevision(ctx context.Context, in RevisionInput) (*Revision
 	if in.Publish {
 		_, err = tx.Exec(ctx, `UPDATE pages SET title = $2, description = $3, body = $4, tags = $5,
 			draft = false, version = $6, updated_at = now(), current_revision_id = $7, translation_key = $8,
-			translation_base_version = $9 WHERE id = $1`,
-			pageID, in.Title, in.Description, in.Body, tags, version, revisionID, in.TranslationKey, in.TranslationBaseVersion)
+			translation_base_version = $9, entity_id = $10 WHERE id = $1`,
+			pageID, in.Title, in.Description, in.Body, tags, version, revisionID, in.TranslationKey, in.TranslationBaseVersion, in.EntityID)
 		if err != nil {
 			return nil, err
 		}
@@ -155,25 +170,46 @@ func (s *Store) CreateRevision(ctx context.Context, in RevisionInput) (*Revision
 		Version:                version,
 		TranslationKey:         in.TranslationKey,
 		TranslationBaseVersion: in.TranslationBaseVersion,
+		EntityID:               in.EntityID,
 		CreatedAt:              createdAt,
 		PublishedAt:            publishedAt,
 	}, nil
 }
 
+const (
+	ProtectionNone = "none"
+	ProtectionSemi = "semi"
+	ProtectionFull = "full"
+)
+
 func (s *Store) SetPageProtected(ctx context.Context, route string, protected bool, actorID int64) error {
+	level := ProtectionNone
+	if protected {
+		level = ProtectionSemi
+	}
+	return s.SetPageProtection(ctx, route, level, actorID)
+}
+
+func (s *Store) SetPageProtection(ctx context.Context, route, level string, actorID int64) error {
+	switch level {
+	case ProtectionNone, ProtectionSemi, ProtectionFull:
+	default:
+		return ErrBadProtection
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	result, err := tx.Exec(ctx, `UPDATE pages SET protected = $2 WHERE route = $1`, route, protected)
+	result, err := tx.Exec(ctx, `UPDATE pages SET protected = $2, protection_level = $3 WHERE route = $1`,
+		route, level != ProtectionNone, level)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	if err := logAudit(ctx, tx, actorID, "page.protect", route, fmt.Sprintf("%v", protected)); err != nil {
+	if err := logAudit(ctx, tx, actorID, "page.protect", route, level); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -189,19 +225,20 @@ func (s *Store) PublishRevision(ctx context.Context, revisionID, reviewerID int6
 	var pageID int64
 	var route, title, description, body, version, status, translationKey, translationBaseVersion string
 	var tags []string
-	var baseRevisionID, currentRevisionID *int64
+	var baseRevisionID, currentRevisionID, entityID *int64
+	var deletedAt *time.Time
 	err = tx.QueryRow(ctx, `SELECT r.page_id, p.route, r.title, r.description, r.body, r.tags, r.version, r.status,
-			r.base_revision_id, p.current_revision_id, r.translation_key, r.translation_base_version
+			r.base_revision_id, p.current_revision_id, r.translation_key, r.translation_base_version, r.entity_id, p.deleted_at
 		FROM page_revisions r JOIN pages p ON p.id = r.page_id
 		WHERE r.id = $1 FOR UPDATE OF r, p`, revisionID).
-		Scan(&pageID, &route, &title, &description, &body, &tags, &version, &status, &baseRevisionID, &currentRevisionID, &translationKey, &translationBaseVersion)
+		Scan(&pageID, &route, &title, &description, &body, &tags, &version, &status, &baseRevisionID, &currentRevisionID, &translationKey, &translationBaseVersion, &entityID, &deletedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}
 	if err != nil {
 		return "", err
 	}
-	if status != StatusPending {
+	if status != StatusPending || deletedAt != nil {
 		return "", ErrEditConflict
 	}
 	if !sameRevision(baseRevisionID, currentRevisionID) {
@@ -210,8 +247,8 @@ func (s *Store) PublishRevision(ctx context.Context, revisionID, reviewerID int6
 
 	_, err = tx.Exec(ctx, `UPDATE pages SET title = $2, description = $3, body = $4, tags = $5,
 		draft = false, version = $6, updated_at = now(), current_revision_id = $7, translation_key = $8,
-		translation_base_version = $9 WHERE id = $1`,
-		pageID, title, description, body, tags, version, revisionID, translationKey, translationBaseVersion)
+		translation_base_version = $9, entity_id = $10 WHERE id = $1`,
+		pageID, title, description, body, tags, version, revisionID, translationKey, translationBaseVersion, entityID)
 	if err != nil {
 		return "", err
 	}
@@ -282,7 +319,7 @@ func sameRevision(left, right *int64) bool {
 func (s *Store) ListRevisions(ctx context.Context, route string, viewerID int64, canReview bool) ([]*Revision, error) {
 	rows, err := s.pool.Query(ctx, `SELECT r.id, r.page_id, p.route, r.title, r.description, r.body, r.tags,
 			r.author_id, COALESCE(u.name, ''), r.comment, r.status, r.base_revision_id, r.version, r.translation_key,
-			r.translation_base_version, r.created_at, r.published_at
+			r.translation_base_version, r.entity_id, r.created_at, r.published_at
 		FROM page_revisions r
 		JOIN pages p ON p.id = r.page_id
 		LEFT JOIN users u ON u.id = r.author_id
@@ -298,7 +335,7 @@ func (s *Store) ListRevisions(ctx context.Context, route string, viewerID int64,
 func (s *Store) GetRevision(ctx context.Context, revisionID int64) (*Revision, error) {
 	row := s.pool.QueryRow(ctx, `SELECT r.id, r.page_id, p.route, r.title, r.description, r.body, r.tags,
 			r.author_id, COALESCE(u.name, ''), r.comment, r.status, r.base_revision_id, r.version, r.translation_key,
-			r.translation_base_version, r.created_at, r.published_at
+			r.translation_base_version, r.entity_id, r.created_at, r.published_at
 		FROM page_revisions r
 		JOIN pages p ON p.id = r.page_id
 		LEFT JOIN users u ON u.id = r.author_id
@@ -306,7 +343,7 @@ func (s *Store) GetRevision(ctx context.Context, revisionID int64) (*Revision, e
 	var revision Revision
 	err := row.Scan(&revision.ID, &revision.PageID, &revision.Route, &revision.Title, &revision.Description, &revision.Body, &revision.Tags,
 		&revision.AuthorID, &revision.AuthorName, &revision.Comment, &revision.Status, &revision.BaseRevisionID, &revision.Version,
-		&revision.TranslationKey, &revision.TranslationBaseVersion, &revision.CreatedAt, &revision.PublishedAt)
+		&revision.TranslationKey, &revision.TranslationBaseVersion, &revision.EntityID, &revision.CreatedAt, &revision.PublishedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -322,7 +359,7 @@ func (s *Store) GetRevision(ctx context.Context, revisionID int64) (*Revision, e
 func (s *Store) ListPendingRevisions(ctx context.Context, limit int) ([]*Revision, error) {
 	rows, err := s.pool.Query(ctx, `SELECT r.id, r.page_id, p.route, r.title, r.description, r.body, r.tags,
 			r.author_id, COALESCE(u.name, ''), r.comment, r.status, r.base_revision_id, r.version, r.translation_key,
-			r.translation_base_version, r.created_at, r.published_at
+			r.translation_base_version, r.entity_id, r.created_at, r.published_at
 		FROM page_revisions r
 		JOIN pages p ON p.id = r.page_id
 		LEFT JOIN users u ON u.id = r.author_id
@@ -332,6 +369,13 @@ func (s *Store) ListPendingRevisions(ctx context.Context, limit int) ([]*Revisio
 	}
 	defer rows.Close()
 	return scanRevisions(rows)
+}
+
+func (s *Store) CountPendingRevisions(ctx context.Context) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM page_revisions r JOIN pages p ON p.id = r.page_id
+		WHERE r.status = 'pending' AND p.deleted_at IS NULL`).Scan(&count)
+	return count, err
 }
 
 func (s *Store) ImportPages(ctx context.Context, pages []*content.Page, authorID *int64) (int, int, error) {
@@ -358,7 +402,8 @@ func (s *Store) ImportPages(ctx context.Context, pages []*content.Page, authorID
 
 		var pageID int64
 		var existingVersion string
-		err := tx.QueryRow(ctx, `SELECT id, version FROM pages WHERE route = $1 FOR UPDATE`, page.Route).Scan(&pageID, &existingVersion)
+		var deletedAt *time.Time
+		err := tx.QueryRow(ctx, `SELECT id, version, deleted_at FROM pages WHERE route = $1 FOR UPDATE`, page.Route).Scan(&pageID, &existingVersion, &deletedAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			err = tx.QueryRow(ctx, `INSERT INTO pages (route, title, description, body, tags, draft, version, translation_key, updated_at)
 				VALUES ($1, $2, $3, $4, $5, false, $6, $7, now()) RETURNING id`,
@@ -378,6 +423,9 @@ func (s *Store) ImportPages(ctx context.Context, pages []*content.Page, authorID
 		}
 		if err != nil {
 			return 0, 0, err
+		}
+		if deletedAt != nil {
+			continue
 		}
 		if existingVersion == version {
 			continue
@@ -415,7 +463,7 @@ func scanRevisions(rows pgx.Rows) ([]*Revision, error) {
 		if err := rows.Scan(&revision.ID, &revision.PageID, &revision.Route, &revision.Title, &revision.Description, &revision.Body,
 			&revision.Tags, &revision.AuthorID, &revision.AuthorName, &revision.Comment, &revision.Status,
 			&revision.BaseRevisionID, &revision.Version, &revision.TranslationKey, &revision.TranslationBaseVersion,
-			&revision.CreatedAt, &revision.PublishedAt); err != nil {
+			&revision.EntityID, &revision.CreatedAt, &revision.PublishedAt); err != nil {
 			return nil, err
 		}
 		if revision.Tags == nil {
@@ -435,4 +483,9 @@ func logAudit(ctx context.Context, tx pgx.Tx, actorID int64, action, target, det
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func isEmailUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "users_email_lower_idx"
 }

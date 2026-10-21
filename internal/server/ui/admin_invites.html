@@ -1,0 +1,72 @@
+{{define "main"}}
+<section class="panel">
+  <h1>{{.T.invite_admin}}</h1>
+  <p class="muted">{{.T.invite_admin_hint}}</p>
+  {{if .NewCode}}
+  <div class="notice notice-ok">
+    <p>{{.T.invite_new_code_hint}}</p>
+    <p><code class="invite-code">{{.NewCode}}</code></p>
+  </div>
+  {{end}}
+  <form method="post" action="/admin/invites/create" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label class="field">
+      <span>{{.T.invite_label}}</span>
+      <input name="label" maxlength="100">
+    </label>
+    <label class="field">
+      <span>{{.T.invite_max_uses}}</span>
+      <input type="number" name="max_uses" min="1" max="100" value="1">
+    </label>
+    <label class="field">
+      <span>{{.T.invite_expires_days}}</span>
+      <input type="number" name="expires_days" min="0" max="3650" value="0">
+    </label>
+    <div class="toolbar">
+      <button class="btn btn-primary" type="submit">{{.T.invite_create}}</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>{{.T.invite_list}}</h2>
+  {{if .Invites}}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>{{.T.invite_label}}</th>
+          <th>{{.T.invite_uses}}</th>
+          <th>{{.T.invite_status}}</th>
+          <th>{{.T.invite_expires}}</th>
+          <th>{{.T.invite_creator}}</th>
+          <th>{{.T.created}}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Invites}}
+        <tr>
+          <td>{{if .Label}}{{.Label}}{{else}}-{{end}}</td>
+          <td>{{.UsesText}}</td>
+          <td>{{if eq .Status "active"}}{{$.T.invite_active}}{{else if eq .Status "used"}}{{$.T.invite_used}}{{else}}{{$.T.invite_expired}}{{end}}</td>
+          <td>{{if .ExpiresAt}}{{.ExpiresAt.Format "2006-01-02 15:04"}}{{else}}{{$.T.invite_never}}{{end}}</td>
+          <td>{{if .CreatedByName}}{{.CreatedByName}}{{else}}-{{end}}</td>
+          <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+          <td>
+            <form method="post" action="/admin/invites/delete" class="inline-form">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="btn btn-danger btn-small" type="submit">{{$.T.invite_delete}}</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="muted">{{.T.invite_none}}</p>
+  {{end}}
+</section>
+{{end}}

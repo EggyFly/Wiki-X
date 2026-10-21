@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"wikix/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/config"
 )
 
 func TestGitHubWebhook(t *testing.T) {

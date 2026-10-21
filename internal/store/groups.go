@@ -187,7 +187,7 @@ func countManagersExceptUser(ctx context.Context, tx pgx.Tx, userID int64) (int,
 	err := tx.QueryRow(ctx, `SELECT count(DISTINCT u.id) FROM users u
 		JOIN user_groups ug ON ug.user_id = u.id
 		JOIN group_rights gr ON gr.group_id = ug.group_id
-		WHERE gr.right_name = $2 AND u.disabled = false AND u.id <> $1`, userID, RightManageUsers).Scan(&count)
+		WHERE gr.right_name = $2 AND u.disabled = false AND u.deleted_at IS NULL AND u.id <> $1`, userID, RightManageUsers).Scan(&count)
 	return count, err
 }
 
@@ -196,7 +196,7 @@ func countManagersExceptGroup(ctx context.Context, tx pgx.Tx, groupID int64) (in
 	err := tx.QueryRow(ctx, `SELECT count(DISTINCT u.id) FROM users u
 		JOIN user_groups ug ON ug.user_id = u.id
 		JOIN group_rights gr ON gr.group_id = ug.group_id
-		WHERE gr.right_name = $2 AND u.disabled = false AND ug.group_id <> $1`, groupID, RightManageUsers).Scan(&count)
+		WHERE gr.right_name = $2 AND u.disabled = false AND u.deleted_at IS NULL AND ug.group_id <> $1`, groupID, RightManageUsers).Scan(&count)
 	return count, err
 }
 

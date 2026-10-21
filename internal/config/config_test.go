@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoadDefaultsAndPaths(t *testing.T) {
@@ -91,6 +92,146 @@ func TestLoadAcceptsAccessLog(t *testing.T) {
 	}
 	if !cfg.Server.AccessLog {
 		t.Fatal("access log should be enabled")
+	}
+}
+
+func TestLoadMailConfig(t *testing.T) {
+	path := writeConfig(t, "site:\n  base_url: https://wiki.example\nmail:\n  host: smtp.example.com\n  from: wiki@example.com\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Mail.Enabled() || cfg.Mail.Port != 587 {
+		t.Fatalf("mail config = %+v", cfg.Mail)
+	}
+
+	path = writeConfig(t, "mail:\n  host: smtp.example.com\n  from: wiki@example.com\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected base_url requirement when mail is configured")
+	}
+	path = writeConfig(t, "mail:\n  host: smtp.example.com\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected host and from to be required together")
+	}
+	path = writeConfig(t, "site:\n  base_url: https://wiki.example\nmail:\n  host: smtp.example.com\n  from: not-an-email\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected invalid mail.from error")
+	}
+}
+
+func TestLoadRegistrationConfig(t *testing.T) {
+	path := writeConfig(t, "registration:\n  mode: invite\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Registration.Mode != "invite" || cfg.Registration.DefaultGroup != "user" {
+		t.Fatalf("registration = %+v", cfg.Registration)
+	}
+	path = writeConfig(t, "registration:\n  mode: open\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("open registration should require mail")
+	}
+	path = writeConfig(t, "site:\n  base_url: https://wiki.example\nmail:\n  host: smtp.example.com\n  from: wiki@example.com\nregistration:\n  mode: open\n")
+	if _, err := Load(path); err != nil {
+		t.Fatal(err)
+	}
+	path = writeConfig(t, "registration:\n  mode: everyone\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("unknown registration mode should fail")
+	}
+}
+
+func TestLoadAuditConfig(t *testing.T) {
+	path := writeConfig(t, "audit:\n  retention: 4320h\n  archive_dir: archives\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Audit.RetentionDuration() != 180*24*time.Hour {
+		t.Fatalf("retention = %v", cfg.Audit.RetentionDuration())
+	}
+	if !filepath.IsAbs(cfg.Audit.ArchiveDir) || filepath.Base(cfg.Audit.ArchiveDir) != "archives" {
+		t.Fatalf("archive dir = %q", cfg.Audit.ArchiveDir)
+	}
+	path = writeConfig(t, "audit:\n  retention: 720h\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("retention below 180 days should fail")
+	}
+	path = writeConfig(t, "audit:\n  retention: 4320h\n  interval: 0s\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("zero interval should fail")
+	}
+}
+
+func TestLoadRateLimitConfig(t *testing.T) {
+	path := writeConfig(t, "ratelimit:\n  enabled: true\n  requests: 100\n  route_requests: 10\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.RateLimit.Enabled || cfg.RateLimit.Requests != 100 || cfg.RateLimit.Window != "1m" {
+		t.Fatalf("ratelimit = %+v", cfg.RateLimit)
+	}
+	if cfg.RateLimit.WindowDuration() != time.Minute || cfg.RateLimit.RouteWindowDuration() != time.Minute {
+		t.Fatalf("durations = %v, %v", cfg.RateLimit.WindowDuration(), cfg.RateLimit.RouteWindowDuration())
+	}
+	path = writeConfig(t, "ratelimit:\n  requests: 0\n  window: 0s\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("zero window should fail")
+	}
+	path = writeConfig(t, "ratelimit:\n  route_requests: -1\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("negative route limit should fail")
+	}
+}
+
+func TestLoadSearchConfig(t *testing.T) {
+	path := writeConfig(t, "search:\n  backend: memory\n")
+	cfg, err := Load(path)
+	if err != nil || cfg.Search.Backend != "memory" {
+		t.Fatalf("search = %+v, %v", cfg, err)
+	}
+	path = writeConfig(t, "search:\n  backend: postgres\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("postgres search should require postgres content")
+	}
+	path = writeConfig(t, "content:\n  source: postgres\ndatabase:\n  url: postgres://x\nsearch:\n  backend: postgres\n")
+	if _, err := Load(path); err != nil {
+		t.Fatal(err)
+	}
+	path = writeConfig(t, "content:\n  source: postgres\ndatabase:\n  url: postgres://x\nsearch:\n  backend: meilisearch\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("meilisearch should require url")
+	}
+	path = writeConfig(t, "content:\n  source: postgres\ndatabase:\n  url: postgres://x\nsearch:\n  backend: meilisearch\n  url: http://127.0.0.1:7700\n  index: wikix\n")
+	cfg, err = Load(path)
+	if err != nil || cfg.Search.Index != "wikix" {
+		t.Fatalf("meilisearch config = %+v, %v", cfg.Search, err)
+	}
+	path = writeConfig(t, "content:\n  source: postgres\ndatabase:\n  url: postgres://x\nsearch:\n  backend: meilisearch\n  url: http://127.0.0.1:7700\n  index: bad/index\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("invalid search index should fail")
+	}
+	path = writeConfig(t, "search:\n  backend: external\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("unknown search backend should fail")
+	}
+}
+
+func TestLoadMetricsConfig(t *testing.T) {
+	path := writeConfig(t, "metrics:\n  enabled: true\n")
+	cfg, err := Load(path)
+	if err != nil || !cfg.Metrics.Enabled || cfg.Metrics.Path != "/-/metrics" {
+		t.Fatalf("metrics = %+v, %v", cfg.Metrics, err)
+	}
+	path = writeConfig(t, "metrics:\n  enabled: true\n  path: metrics\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("relative metrics path should fail")
+	}
+	path = writeConfig(t, "metrics:\n  enabled: true\n  path: /assets/\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("reserved metrics path should fail")
 	}
 }
 

@@ -26,7 +26,22 @@ var (
 	ErrInvalidSpec      = errors.New("component spec is invalid")
 )
 
-type componentFunc func(body []byte) (template.HTML, error)
+type EntityField struct {
+	Name  string
+	Label string
+	Value string
+}
+
+type Entity struct {
+	Key    string
+	Label  string
+	Type   string
+	Fields []EntityField
+}
+
+type EntityLookup func(key string) (*Entity, bool)
+
+type componentFunc func(body []byte, lookup EntityLookup) (template.HTML, error)
 
 var registry = map[string]componentFunc{
 	"infobox":  renderInfobox,
@@ -36,6 +51,10 @@ var registry = map[string]componentFunc{
 }
 
 func Render(name string, body []byte) (template.HTML, error) {
+	return RenderWithEntities(name, body, nil)
+}
+
+func RenderWithEntities(name string, body []byte, lookup EntityLookup) (template.HTML, error) {
 	render, ok := registry[name]
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrUnknownComponent, name)
@@ -46,7 +65,7 @@ func Render(name string, body []byte) (template.HTML, error) {
 	if len(body) > maxBodySize {
 		return "", ErrBodyTooLarge
 	}
-	return render(body)
+	return render(body, lookup)
 }
 
 func ErrorBox(err error) template.HTML {
@@ -106,7 +125,7 @@ func mustMarshal(node *yaml.Node) []byte {
 	return data
 }
 
-func renderInfobox(body []byte) (template.HTML, error) {
+func renderInfobox(body []byte, lookup EntityLookup) (template.HTML, error) {
 	root, err := decodeNode(body)
 	if err != nil {
 		return "", err
@@ -118,6 +137,36 @@ func renderInfobox(body []byte) (template.HTML, error) {
 	if err := validateInfobox(&spec); err != nil {
 		return "", err
 	}
+	if spec.Entity != "" {
+		if lookup == nil {
+			return "", specError("entity 引用不可用")
+		}
+		entity, ok := lookup(spec.Entity)
+		if !ok {
+			return "", specError("entity %q 不存在", spec.Entity)
+		}
+		if strings.TrimSpace(spec.Title) == "" {
+			spec.Title = entity.Label
+		}
+		if strings.TrimSpace(spec.Title) == "" {
+			spec.Title = entity.Key
+		}
+		explicit := make(map[string]bool, len(spec.Rows))
+		for _, row := range spec.Rows {
+			explicit[row.Label] = true
+		}
+		rows := make([]infoboxRow, 0, len(entity.Fields)+len(spec.Rows))
+		for _, field := range entity.Fields {
+			if strings.TrimSpace(field.Value) == "" || explicit[field.Label] {
+				continue
+			}
+			rows = append(rows, infoboxRow{Label: field.Label, Value: field.Value})
+		}
+		spec.Rows = append(rows, spec.Rows...)
+		if len(spec.Rows) > 40 {
+			return "", specError("entity 字段和 rows 合计不能超过 40")
+		}
+	}
 	var builder strings.Builder
 	if err := infoboxTemplate.Execute(&builder, spec); err != nil {
 		return "", err
@@ -126,6 +175,7 @@ func renderInfobox(body []byte) (template.HTML, error) {
 }
 
 type infoboxSpec struct {
+	Entity  string       `yaml:"entity"`
 	Title   string       `yaml:"title"`
 	Image   string       `yaml:"image"`
 	Caption string       `yaml:"caption"`
@@ -140,7 +190,10 @@ type infoboxRow struct {
 }
 
 func validateInfobox(spec *infoboxSpec) error {
-	if strings.TrimSpace(spec.Title) == "" {
+	if spec.Entity != "" && !validEntityKey(spec.Entity) {
+		return specError("entity 名称不合法")
+	}
+	if spec.Entity == "" && strings.TrimSpace(spec.Title) == "" {
 		return specError("title 不能为空")
 	}
 	if utf8.RuneCountInString(spec.Title) > 200 {
@@ -173,6 +226,19 @@ func specError(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalidSpec, fmt.Sprintf(format, args...))
 }
 
+func validEntityKey(key string) bool {
+	if len(key) == 0 || len(key) > 100 {
+		return false
+	}
+	for _, r := range key {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func validSitePath(path string) bool {
 	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.Contains(path, "\\") {
 		return false
@@ -203,7 +269,7 @@ var infoboxTemplate = template.Must(template.New("infobox").Parse(
 		`{{with .Footer}}<p class="wx-infobox-footer">{{.}}</p>{{end}}` +
 		`</div></aside>`))
 
-func renderNotice(body []byte) (template.HTML, error) {
+func renderNotice(body []byte, lookup EntityLookup) (template.HTML, error) {
 	root, err := decodeNode(body)
 	if err != nil {
 		return "", err
@@ -253,7 +319,7 @@ var noticeTemplate = template.Must(template.New("notice").Parse(
 		`{{with .Title}}<p class="wx-notice-title">{{.}}</p>{{end}}` +
 		`<p class="wx-notice-text">{{.Text}}</p></div>`))
 
-func renderGallery(body []byte) (template.HTML, error) {
+func renderGallery(body []byte, lookup EntityLookup) (template.HTML, error) {
 	root, err := decodeNode(body)
 	if err != nil {
 		return "", err
@@ -304,7 +370,7 @@ var galleryTemplate = template.Must(template.New("gallery").Parse(
 		`<figure class="wx-gallery-item"><img src="{{.Image}}" alt="{{.Caption}}">` +
 		`{{with .Caption}}<figcaption>{{.}}</figcaption>{{end}}</figure>{{end}}</div>`))
 
-func renderCollapse(body []byte) (template.HTML, error) {
+func renderCollapse(body []byte, lookup EntityLookup) (template.HTML, error) {
 	root, err := decodeNode(body)
 	if err != nil {
 		return "", err

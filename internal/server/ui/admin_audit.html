@@ -44,11 +44,10 @@
   {{else}}
   <p class="empty">{{.T.no_audit}}</p>
   {{end}}
-  {{if gt .Pager.Pages 1}}
+  {{if or .Cursor .NextCursor}}
   <div class="toolbar pager">
-    {{if .Pager.HasPrev}}<a class="btn" href="/admin/audit?page={{.Pager.PrevPage}}&page_size={{.Pager.Size}}&q={{.Query}}&from={{.From}}&to={{.To}}">{{.T.prev_page}}</a>{{end}}
-    <span class="muted">{{.Pager.Page}} / {{.Pager.Pages}}</span>
-    {{if .Pager.HasNext}}<a class="btn" href="/admin/audit?page={{.Pager.NextPage}}&page_size={{.Pager.Size}}&q={{.Query}}&from={{.From}}&to={{.To}}">{{.T.next_page}}</a>{{end}}
+    {{if .Cursor}}<a class="btn" href="/admin/audit?page_size={{.Size}}&q={{urlquery .Query}}&from={{.From}}&to={{.To}}">{{.T.audit_first_page}}</a>{{end}}
+    {{if .NextCursor}}<a class="btn" href="/admin/audit?page_size={{.Size}}&q={{urlquery .Query}}&from={{.From}}&to={{.To}}&cursor={{.NextCursor}}">{{.T.next_page}}</a>{{end}}
   </div>
   {{end}}
 </section>

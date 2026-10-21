@@ -18,10 +18,10 @@ func (s *Store) GetSession(ctx context.Context, tokenHash string) (*SessionData,
 	var user User
 	var csrfToken string
 	var expiresAt time.Time
-	err := s.pool.QueryRow(ctx, `SELECT u.id, u.name, u.email, u.disabled, u.totp_enabled, u.created_at, s.csrf_token, s.expires_at
+	err := s.pool.QueryRow(ctx, `SELECT u.id, u.name, u.email, u.email_verified, u.disabled, u.totp_enabled, u.created_at, s.csrf_token, s.expires_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash = $1 AND s.expires_at > now() AND u.disabled = false`, tokenHash).
-		Scan(&user.ID, &user.Name, &user.Email, &user.Disabled, &user.TOTPEnabled, &user.CreatedAt, &csrfToken, &expiresAt)
+		WHERE s.token_hash = $1 AND s.expires_at > now() AND u.disabled = false AND u.deleted_at IS NULL`, tokenHash).
+		Scan(&user.ID, &user.Name, &user.Email, &user.EmailVerified, &user.Disabled, &user.TOTPEnabled, &user.CreatedAt, &csrfToken, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

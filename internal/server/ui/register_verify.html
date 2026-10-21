@@ -1,0 +1,20 @@
+{{define "main"}}
+<section class="panel auth-panel">
+  <h1>{{.T.register_verify_title}}</h1>
+  {{if .Sent}}
+  <p class="muted">{{.T.register_verify_sent}}</p>
+  <p class="muted"><a href="/login">{{.T.login}}</a></p>
+  {{else}}
+  <p class="muted">{{.T.register_verify_hint}}</p>
+  <form method="post" action="/register/verify" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label class="field">
+      <span>{{.T.account_email}}</span>
+      <input type="email" name="email" autocomplete="email" required maxlength="320">
+    </label>
+    <button class="btn btn-primary" type="submit">{{.T.register_verify_button}}</button>
+  </form>
+  <p class="muted"><a href="/login">{{.T.login}}</a></p>
+  {{end}}
+</section>
+{{end}}

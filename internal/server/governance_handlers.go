@@ -11,9 +11,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"wikix/internal/auth"
-	"wikix/internal/site"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/auth"
+	"github.com/EggyFly/Wiki-X/internal/site"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 func (a *App) handleProtect(w http.ResponseWriter, r *http.Request) {
@@ -31,20 +31,34 @@ func (a *App) handleProtect(w http.ResponseWriter, r *http.Request) {
 		a.renderMessage(w, r, http.StatusBadRequest, "路由不合法", "页面路由必须以 / 开头和结尾, 并且不能使用系统保留路径.")
 		return
 	}
-	protected := r.FormValue("protected") == "1"
-	if err := a.store.SetPageProtected(r.Context(), route, protected, session.User.ID); err != nil {
+	level := strings.TrimSpace(r.FormValue("level"))
+	if level == "" {
+		level = store.ProtectionNone
+		if r.FormValue("protected") == "1" {
+			level = store.ProtectionSemi
+		}
+	}
+	if err := a.store.SetPageProtection(r.Context(), route, level, session.User.ID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			a.renderMessage(w, r, http.StatusNotFound, "页面不存在", "没有找到这个页面.")
 			return
 		}
-		slog.Error("set page protected failed", "err", err)
+		if errors.Is(err, store.ErrBadProtection) {
+			a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "保护级别不合法.")
+			return
+		}
+		slog.Error("set page protection failed", "err", err)
 		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法修改页面保护状态.")
 		return
 	}
 	a.reloadSite(r.Context())
+	a.invalidateRoute(r.Context(), route)
 	notice := "unprotected"
-	if protected {
+	switch level {
+	case store.ProtectionSemi:
 		notice = "protected"
+	case store.ProtectionFull:
+		notice = "protected_full"
 	}
 	a.redirect(w, r, "/edit?route="+url.QueryEscape(route)+"&notice="+notice, http.StatusSeeOther)
 }

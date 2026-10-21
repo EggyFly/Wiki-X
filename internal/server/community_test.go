@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -23,11 +24,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"wikix/internal/auth"
-	"wikix/internal/config"
-	"wikix/internal/content"
-	"wikix/internal/site"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/auth"
+	"github.com/EggyFly/Wiki-X/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/content"
+	"github.com/EggyFly/Wiki-X/internal/site"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 var csrfPattern = regexp.MustCompile(`name="csrf_token" value="([^"]+)"`)
@@ -253,8 +254,8 @@ func TestGovernanceFlow(t *testing.T) {
 	}
 
 	editorEdit := mustGet(t, editor, baseURL+"/edit?route="+url.QueryEscape("/guide/"))
-	if editorEdit.StatusCode != http.StatusForbidden {
-		t.Fatalf("editor edit protected status = %d", editorEdit.StatusCode)
+	if editorEdit.StatusCode != http.StatusOK {
+		t.Fatalf("editor edit semi-protected status = %d", editorEdit.StatusCode)
 	}
 	editorEdit.Body.Close()
 
@@ -262,11 +263,11 @@ func TestGovernanceFlow(t *testing.T) {
 		"csrf_token":   {editorCSRF},
 		"route":        {"/guide/"},
 		"title":        {"Guide"},
-		"body":         {"editor bypass attempt"},
+		"body":         {"editor edit request"},
 		"base_version": {page.Version},
 	})
-	if editorSave.StatusCode != http.StatusForbidden {
-		t.Fatalf("editor save protected status = %d", editorSave.StatusCode)
+	if editorSave.StatusCode != http.StatusSeeOther {
+		t.Fatalf("editor edit request status = %d", editorSave.StatusCode)
 	}
 	editorSave.Body.Close()
 
@@ -635,7 +636,7 @@ func TestAdminUsers(t *testing.T) {
 		t.Fatal("audit filter missing matching entry")
 	}
 	emptyAudit := mustGet(t, admin, baseURL+"/admin/audit?q=no-such-entry")
-	if body := readResponse(t, emptyAudit); !strings.Contains(body, "还没有审计记录") {
+	if body := readResponse(t, emptyAudit); !strings.Contains(body, "还没有审计记录.") {
 		t.Fatal("audit filter did not clear entries")
 	}
 	export := mustGet(t, admin, baseURL+"/admin/audit/export?q=user.groups")
@@ -1145,7 +1146,7 @@ func setupCommunityFixture(t *testing.T, ghConfig config.GitHubConfig) (*App, *s
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = pool.Exec(ctx, `TRUNCATE comment_reports, watchlist, comments, audit_logs, media, sessions, page_revisions, pages, identities, user_groups, users RESTART IDENTITY CASCADE`)
+	_, err = pool.Exec(ctx, `TRUNCATE comment_reports, watchlist, comments, audit_logs, media, sessions, page_revisions, pages, entity_fields, entities, entity_types, email_tokens, invite_codes, identities, user_groups, users RESTART IDENTITY CASCADE`)
 	if err == nil {
 		_, err = pool.Exec(ctx, `TRUNCATE group_rights, groups RESTART IDENTITY CASCADE`)
 	}
@@ -1228,19 +1229,37 @@ func setupCommunityFixture(t *testing.T, ghConfig config.GitHubConfig) (*App, *s
 }
 
 func TestPullRequestImport(t *testing.T) {
+	png, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
 	fakeGitHub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/pulls/42/files"):
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode([]map[string]string{{"filename": "content/imported.md", "status": "added"}})
+			_ = json.NewEncoder(w).Encode([]map[string]string{
+				{"filename": "content/imported.md", "status": "added"},
+				{"filename": "content/removed.md", "status": "removed"},
+				{"filename": "content/images/icon.png", "status": "added"},
+			})
 		case strings.Contains(r.URL.Path, "/contents/content/imported.md"):
-			markdown := "---\ntitle: Imported\ndescription: from pr\ntags: [alpha]\n---\n\nfrom pr\n"
+			markdown := "---\ntitle: Imported\ndescription: from pr\ntags: [alpha]\n---\n\nfrom pr\n\n![icon](images/icon.png)\n"
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"type":     "file",
 				"encoding": "base64",
 				"content":  base64.StdEncoding.EncodeToString([]byte(markdown)),
 				"size":     len(markdown),
+			})
+		case strings.Contains(r.URL.Path, "/contents/content/images/icon.png"):
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"type": "file", "sha": "blob-icon", "size": len(png)})
+		case strings.HasSuffix(r.URL.Path, "/git/blobs/blob-icon"):
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"encoding": "base64",
+				"content":  base64.StdEncoding.EncodeToString(png),
+				"size":     len(png),
 			})
 		default:
 			http.NotFound(w, r)
@@ -1257,6 +1276,11 @@ func TestPullRequestImport(t *testing.T) {
 		APIBaseURL:  fakeGitHub.URL,
 	})
 	ctx := context.Background()
+	if _, _, err := data.ImportPages(ctx, []*content.Page{
+		{Route: "/removed/", Title: "Removed", Body: "old page", Version: "old-version"},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
 	payload := githubPullRequestPayload{Number: 42}
 	payload.Repository.FullName = "owner/repo"
 	payload.PullRequest.Merged = true
@@ -1272,11 +1296,29 @@ func TestPullRequestImport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page.Title != "Imported" || page.Body != "from pr\n" || len(page.Tags) != 1 || page.Tags[0] != "alpha" {
+	sum := sha256.Sum256(png)
+	mediaName := "pr-" + hex.EncodeToString(sum[:])[:16] + ".png"
+	if page.Title != "Imported" || len(page.Tags) != 1 || page.Tags[0] != "alpha" {
 		t.Fatalf("imported page = %+v", page)
+	}
+	if !strings.Contains(page.Body, "/media/"+mediaName) {
+		t.Fatalf("media path not rewritten: %s", page.Body)
+	}
+	if _, err := data.GetMedia(ctx, mediaName); err != nil {
+		t.Fatalf("media record missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(app.cfg.Media.Dir, mediaName)); err != nil {
+		t.Fatalf("media file missing: %v", err)
+	}
+	removedPage, err := data.GetPage(ctx, "/removed/")
+	if err != nil || removedPage.DeletedAt == nil {
+		t.Fatalf("removed page = %+v, %v", removedPage, err)
 	}
 	if _, ok := loaded.FindPage("/imported/"); !ok {
 		t.Fatal("imported page not visible after reload")
+	}
+	if _, ok := loaded.FindPage("/removed/"); ok {
+		t.Fatal("removed page should disappear after reload")
 	}
 	revisions, err := data.ListRevisions(ctx, "/imported/", 0, true)
 	if err != nil || len(revisions) != 1 {

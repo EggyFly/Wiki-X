@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"wikix/internal/config"
-	"wikix/internal/content"
+	"github.com/EggyFly/Wiki-X/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/content"
 )
 
 func TestStoreFlow(t *testing.T) {
@@ -209,8 +209,20 @@ func TestPageProtection(t *testing.T) {
 		t.Fatal(err)
 	}
 	page, err := s.GetPage(ctx, "/guide/")
-	if err != nil || !page.Protected {
+	if err != nil || !page.Protected || page.ProtectionLevel != ProtectionSemi {
 		t.Fatalf("page = %+v, %v", page, err)
+	}
+	if _, err := s.CreateRevision(ctx, RevisionInput{
+		Route:       "/guide/",
+		Title:       "Guide",
+		Body:        "edit request",
+		AuthorID:    admin.ID,
+		BaseVersion: page.Version,
+	}); err != nil {
+		t.Fatalf("semi-protected page should accept pending requests: %v", err)
+	}
+	if err := s.SetPageProtection(ctx, "/guide/", ProtectionFull, admin.ID); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := s.CreateRevision(ctx, RevisionInput{
 		Route:       "/guide/",
@@ -232,11 +244,14 @@ func TestPageProtection(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.SetPageProtection(ctx, "/guide/", "bogus", admin.ID); !errors.Is(err, ErrBadProtection) {
+		t.Fatalf("bad level error = %v", err)
+	}
 	if err := s.SetPageProtected(ctx, "/guide/", false, admin.ID); err != nil {
 		t.Fatal(err)
 	}
 	page, err = s.GetPage(ctx, "/guide/")
-	if err != nil || page.Protected {
+	if err != nil || page.Protected || page.ProtectionLevel != ProtectionNone {
 		t.Fatalf("unprotected page = %+v, %v", page, err)
 	}
 	if _, err := s.CreateRevision(ctx, RevisionInput{
@@ -678,7 +693,7 @@ func openTestStore(t *testing.T) *Store {
 	if err := s.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.pool.Exec(ctx, `TRUNCATE comment_reports, watchlist, comments, audit_logs, media, sessions, page_revisions, pages, identities, user_groups, users RESTART IDENTITY CASCADE`)
+	_, err = s.pool.Exec(ctx, `TRUNCATE comment_reports, watchlist, comments, audit_logs, media, sessions, page_revisions, pages, entity_fields, entities, entity_types, email_tokens, invite_codes, identities, user_groups, users RESTART IDENTITY CASCADE`)
 	if err != nil {
 		t.Fatal(err)
 	}

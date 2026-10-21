@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 )
@@ -125,6 +126,26 @@ func (m *Memory) Delete(ctx context.Context, keys ...string) error {
 		}
 	}
 	return nil
+}
+
+func (m *Memory) DeleteMatching(ctx context.Context, contains string) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if contains == "" {
+		return 0, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	deleted := 0
+	for key, entry := range m.items {
+		if strings.Contains(key, contains) {
+			delete(m.items, key)
+			m.bytes -= int64(len(key) + len(entry.value))
+			deleted++
+		}
+	}
+	return deleted, nil
 }
 
 func (m *Memory) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {

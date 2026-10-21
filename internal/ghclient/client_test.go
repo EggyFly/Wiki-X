@@ -73,7 +73,7 @@ func TestCreatePullRequest(t *testing.T) {
 	if err != nil || string(decoded) != "hello" {
 		t.Fatalf("content = %q, %v", decoded, err)
 	}
-	if !strings.HasPrefix(putPayload["branch"], "wikix/") {
+	if !strings.HasPrefix(putPayload["branch"], "github.com/EggyFly/Wiki-X/") {
 		t.Fatalf("branch = %q", putPayload["branch"])
 	}
 	if prPayload["title"] != "Edit page" || prPayload["base"] != "main" {
@@ -101,6 +101,10 @@ func TestPullRequestFilesAndContent(t *testing.T) {
 		case strings.Contains(r.URL.Path, "/contents/content/page.md"):
 			encoded := base64.StdEncoding.EncodeToString([]byte("page content"))
 			writeJSON(w, map[string]any{"type": "file", "encoding": "base64", "content": encoded, "size": len("page content")})
+		case strings.Contains(r.URL.Path, "/contents/content/icon.png"):
+			writeJSON(w, map[string]any{"type": "file", "sha": "blob-sha", "size": 4})
+		case strings.HasSuffix(r.URL.Path, "/git/blobs/blob-sha"):
+			writeJSON(w, map[string]any{"encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte("PNG!")), "size": 4})
 		default:
 			http.Error(w, "unexpected", http.StatusNotFound)
 		}
@@ -118,6 +122,13 @@ func TestPullRequestFilesAndContent(t *testing.T) {
 	content, err := client.FileContent(context.Background(), "content/page.md", "merge-sha")
 	if err != nil || string(content) != "page content" {
 		t.Fatalf("content = %q, %v", content, err)
+	}
+	blob, err := client.FileBlob(context.Background(), "content/icon.png", "merge-sha", 1024)
+	if err != nil || string(blob) != "PNG!" {
+		t.Fatalf("blob = %q, %v", blob, err)
+	}
+	if _, err := client.FileBlob(context.Background(), "content/icon.png", "merge-sha", 2); err == nil {
+		t.Fatal("oversized blob should fail")
 	}
 }
 

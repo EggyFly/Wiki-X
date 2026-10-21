@@ -3,8 +3,34 @@
   <h1>{{.T.account_title}}</h1>
   <dl class="meta-list">
     <dt>{{.T.username}}</dt><dd>{{.User.Name}}</dd>
-    <dt>{{.T.account_email}}</dt><dd>{{if .User.Email}}{{.User.Email}}{{else}}-{{end}}</dd>
+    <dt>{{.T.account_email}}</dt><dd>{{if .User.Email}}{{.User.Email}}{{else}}-{{end}}{{if .User.Email}} · {{if .User.EmailVerified}}{{.T.email_verified}}{{else}}{{.T.email_unverified}}{{end}}{{end}}</dd>
   </dl>
+
+  {{if .MailEnabled}}
+  <h2>{{.T.email_title}}</h2>
+  <form method="post" action="/account/email" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label class="field">
+      <span>{{.T.account_email}}</span>
+      <input type="email" name="email" value="{{.User.Email}}" maxlength="320" required>
+    </label>
+    {{if .HasPassword}}
+    <label class="field">
+      <span>{{.T.current_password}}</span>
+      <input type="password" name="password" maxlength="128" required>
+    </label>
+    {{end}}
+    <div class="toolbar">
+      <button class="btn btn-primary" type="submit">{{.T.email_save}}</button>
+    </div>
+  </form>
+  {{if and .User.Email (not .User.EmailVerified)}}
+  <form method="post" action="/account/email/resend" class="toolbar">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <button class="btn" type="submit">{{.T.email_verify_send}}</button>
+  </form>
+  {{end}}
+  {{end}}
 
   <h2>{{.T.account_login_methods}}</h2>
   {{if .Identities}}
@@ -43,15 +69,52 @@
     {{else}}
     <label class="field">
       <span>{{.T.totp_code}}</span>
-      <input name="totp_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+      <input name="totp_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+    </label>
+    <label class="field">
+      <span>{{.T.recovery_code_login}}</span>
+      <input name="recovery_code" autocomplete="off" maxlength="32">
     </label>
     {{end}}
     <div class="toolbar">
       <button class="btn btn-danger" type="submit">{{.T.totp_disable}}</button>
     </div>
   </form>
+
+  <h3>{{.T.recovery_codes_title}}</h3>
+  <p class="muted">{{.T.recovery_codes_hint}} {{.T.recovery_codes_remaining}}: {{.RecoveryCodes}}</p>
+  {{if .NewRecoveryCodes}}
+  <div class="notice notice-ok">
+    <p>{{.T.recovery_codes_new_hint}}</p>
+    <ul class="recovery-list">
+      {{range .NewRecoveryCodes}}<li><code class="recovery-code">{{.}}</code></li>{{end}}
+    </ul>
+  </div>
+  {{end}}
+  <form method="post" action="/account/recovery/generate" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    {{if .HasPassword}}
+    <label class="field">
+      <span>{{.T.current_password}}</span>
+      <input type="password" name="password" maxlength="128" required>
+    </label>
+    {{else}}
+    <label class="field">
+      <span>{{.T.totp_code}}</span>
+      <input name="totp_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+    </label>
+    <label class="field">
+      <span>{{.T.recovery_code_login}}</span>
+      <input name="recovery_code" autocomplete="off" maxlength="32">
+    </label>
+    {{end}}
+    <div class="toolbar">
+      <button class="btn" type="submit">{{.T.recovery_codes_generate}}</button>
+    </div>
+  </form>
   {{else if .TOTPSecret}}
   <p class="muted">{{.T.totp_setup_hint}}</p>
+  <img class="totp-qr" src="/account/totp/qr" alt="{{.T.totp_qr_alt}}" width="240" height="240">
   <dl class="meta-list">
     <dt>{{.T.totp_secret_label}}</dt><dd><code class="totp-secret">{{.TOTPSecret}}</code></dd>
     <dt>{{.T.totp_otpauth_label}}</dt><dd><code class="totp-otpauth">{{.OTPAuthURL}}</code></dd>
@@ -98,5 +161,40 @@
       <button class="btn btn-primary" type="submit">{{.T.change_password}}</button>
     </div>
   </form>
+</section>
+
+<section class="panel">
+  <h2>{{.T.account_danger}}</h2>
+  <p class="muted">{{.T.account_export_hint}}</p>
+  <p><a class="btn" href="/account/export">{{.T.account_export}}</a></p>
+  <details class="danger-zone">
+    <summary>{{.T.account_delete}}</summary>
+    <p class="muted">{{.T.account_delete_hint}}</p>
+    <form method="post" action="/account/delete" class="form-grid">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      {{if .HasPassword}}
+      <label class="field">
+        <span>{{.T.current_password}}</span>
+        <input type="password" name="password" maxlength="128" required>
+      </label>
+      {{else}}
+      <label class="field">
+        <span>{{.T.totp_code}}</span>
+        <input name="totp_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+      </label>
+      <label class="field">
+        <span>{{.T.recovery_code_login}}</span>
+        <input name="recovery_code" autocomplete="off" maxlength="32">
+      </label>
+      {{end}}
+      <label class="field checkbox-field">
+        <input type="checkbox" name="confirm" value="1" required>
+        <span>{{.T.account_delete_confirm}}</span>
+      </label>
+      <div class="toolbar">
+        <button class="btn btn-danger" type="submit">{{.T.account_delete}}</button>
+      </div>
+    </form>
+  </details>
 </section>
 {{end}}

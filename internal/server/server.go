@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"wikix/internal/site"
+	"github.com/EggyFly/Wiki-X/internal/site"
 )
 
 func (a *App) servePage(w http.ResponseWriter, r *http.Request) {

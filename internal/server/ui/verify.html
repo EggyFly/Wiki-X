@@ -6,7 +6,11 @@
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
     <label class="field">
       <span>{{.T.totp_confirm_code}}</span>
-      <input name="totp_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+      <input name="totp_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+    </label>
+    <label class="field">
+      <span>{{.T.recovery_code_login}}</span>
+      <input name="recovery_code" autocomplete="off" maxlength="32">
     </label>
     <button class="btn btn-primary" type="submit">{{.T.verify_button}}</button>
   </form>

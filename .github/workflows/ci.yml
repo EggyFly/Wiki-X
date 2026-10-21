@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      WIKIX_TEST_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/wikix_test?sslmode=disable
+      WIKIX_TEST_POSTGRES_URL_SERVER: postgres://postgres:postgres@127.0.0.1:5432/wikix_test_server?sslmode=disable
+      WIKIX_TEST_POSTGRES_URL_AUDIT: postgres://postgres:postgres@127.0.0.1:5432/wikix_test_audit?sslmode=disable
+      WIKIX_TEST_REDIS_ADDR: 127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+          cache: true
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Create test databases
+        run: |
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wikix_test"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wikix_test_server"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wikix_test_audit"
+      - name: Test
+        run: go test -race -count=1 ./...
+      - name: Check frontend JavaScript
+        run: node --check internal/server/ui/assets/app.js

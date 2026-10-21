@@ -10,9 +10,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"wikix/internal/auth"
-	"wikix/internal/i18n"
-	"wikix/internal/store"
+	qrcode "github.com/skip2/go-qrcode"
+
+	"github.com/EggyFly/Wiki-X/internal/auth"
+	"github.com/EggyFly/Wiki-X/internal/i18n"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 func (a *App) handleLoginPage(w http.ResponseWriter, r *http.Request) {
@@ -31,12 +33,15 @@ func (a *App) renderLogin(w http.ResponseWriter, r *http.Request, next, message 
 		return
 	}
 	data := loginData{
-		baseData: a.baseData(r, "登录"),
-		Next:     safeNext(next),
-		HasUsers: count > 0,
+		baseData:         a.baseData(r, "登录"),
+		Next:             safeNext(next),
+		HasUsers:         count > 0,
+		MailEnabled:      a.mailEnabled(),
+		RegistrationMode: a.registrationMode(),
 	}
 	data.CSRF = a.auth.LoginCSRF(w, r)
 	data.Error = i18n.Message(a.uiLang(), message)
+	data.Notice = a.noticeText(r.URL.Query().Get("notice"))
 	a.renderUI(w, r, status, "login", data)
 }
 
@@ -82,13 +87,13 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		code := r.FormValue("totp_code")
-		step, ok := auth.ValidateTOTP(user.TOTPSecret, code)
-		if !ok || !a.consumeTOTPCode(r.Context(), user, step) {
+		recoveryCode := r.FormValue("recovery_code")
+		if !a.checkSecondFactor(r.Context(), user, code, recoveryCode) {
 			a.auth.RecordLoginFailure(limitKey)
 			a.auth.RecordLoginFailure(totpKey)
-			message := "请输入两步验证码."
-			if strings.TrimSpace(code) != "" {
-				message = "两步验证码不正确或已过期."
+			message := "请输入两步验证码或恢复码."
+			if strings.TrimSpace(code) != "" || strings.TrimSpace(recoveryCode) != "" {
+				message = "验证码或恢复码不正确."
 			}
 			a.renderLogin(w, r, next, message, http.StatusUnauthorized)
 			return
@@ -141,10 +146,9 @@ func (a *App) handleVerify(w http.ResponseWriter, r *http.Request) {
 		a.renderLogin(w, r, "/", "验证已过期, 请重新登录.", http.StatusUnauthorized)
 		return
 	}
-	step, valid := auth.ValidateTOTP(user.TOTPSecret, r.FormValue("totp_code"))
-	if !valid || !a.consumeTOTPCode(r.Context(), user, step) {
+	if !a.checkSecondFactor(r.Context(), user, r.FormValue("totp_code"), r.FormValue("recovery_code")) {
 		a.auth.RecordLoginFailure(limitKey)
-		a.renderLogin(w, r, "/", "两步验证码不正确或已过期.", http.StatusUnauthorized)
+		a.renderLogin(w, r, "/", "验证码或恢复码不正确.", http.StatusUnauthorized)
 		return
 	}
 	a.auth.RecordLoginSuccess(limitKey)
@@ -207,17 +211,24 @@ func (a *App) handleAccount(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	identities, err := a.store.ListIdentities(r.Context(), session.User.ID)
+	data, err := a.buildAccountData(r, session)
 	if err != nil {
-		slog.Error("list identities failed", "err", err)
+		slog.Error("load account data failed", "err", err)
 		a.renderMessage(w, r, http.StatusInternalServerError, "读取失败", "暂时无法读取账号信息.")
 		return
 	}
+	data.Notice = a.noticeText(r.URL.Query().Get("notice"))
+	a.renderUI(w, r, http.StatusOK, "account", data)
+}
+
+func (a *App) buildAccountData(r *http.Request, session *store.SessionData) (accountData, error) {
+	identities, err := a.store.ListIdentities(r.Context(), session.User.ID)
+	if err != nil {
+		return accountData{}, err
+	}
 	user, err := a.store.UserByID(r.Context(), session.User.ID)
 	if err != nil {
-		slog.Error("load account user failed", "err", err)
-		a.renderMessage(w, r, http.StatusInternalServerError, "读取失败", "暂时无法读取账号信息.")
-		return
+		return accountData{}, err
 	}
 	hasGitHub := false
 	for _, identity := range identities {
@@ -226,17 +237,23 @@ func (a *App) handleAccount(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	data := accountData{
-		baseData:    a.baseData(r, "账号"),
-		Identities:  identities,
-		HasGitHub:   hasGitHub,
-		HasPassword: user.PasswordHash != "",
-		TOTPEnabled: user.TOTPEnabled,
-		TOTPSecret:  user.TOTPSecret,
-		OTPAuthURL:  auth.OTPAuthURL(a.totpIssuer(), user.Name, user.TOTPSecret),
+	count, err := a.store.CountRecoveryCodes(r.Context(), session.User.ID)
+	if err != nil {
+		return accountData{}, err
 	}
-	data.Notice = a.noticeText(r.URL.Query().Get("notice"))
-	a.renderUI(w, r, http.StatusOK, "account", data)
+	return accountData{
+		baseData:         a.baseData(r, "账号"),
+		Identities:       identities,
+		HasGitHub:        hasGitHub,
+		HasPassword:      user.PasswordHash != "",
+		EmailVerified:    user.EmailVerified,
+		MailEnabled:      a.mailEnabled(),
+		TOTPEnabled:      user.TOTPEnabled,
+		TOTPSecret:       user.TOTPSecret,
+		OTPAuthURL:       auth.OTPAuthURL(a.totpIssuer(), user.Name, user.TOTPSecret),
+		RecoveryCodes:    count,
+		NewRecoveryCodes: nil,
+	}, nil
 }
 
 const totpSetupWindow = 30 * time.Minute
@@ -257,6 +274,29 @@ func (a *App) parseGuard(w http.ResponseWriter, r *http.Request, session *store.
 		a.renderMessage(w, r, http.StatusForbidden, "操作失败", "请求校验失败.")
 		return false
 	}
+	return true
+}
+
+func (a *App) checkSecondFactor(ctx context.Context, user *store.User, totpCode, recoveryCode string) bool {
+	code := strings.TrimSpace(totpCode)
+	if code != "" {
+		if step, valid := auth.ValidateTOTP(user.TOTPSecret, code); valid && a.consumeTOTPCode(ctx, user, step) {
+			return true
+		}
+	}
+	normalized := auth.NormalizeRecoveryCode(recoveryCode)
+	if normalized == "" {
+		return false
+	}
+	used, err := a.store.ConsumeRecoveryCode(ctx, user.ID, auth.HashRecoveryCode(normalized))
+	if err != nil {
+		slog.Error("consume recovery code failed", "err", err, "user", user.ID)
+		return false
+	}
+	if !used {
+		return false
+	}
+	_ = a.store.LogAudit(ctx, user.ID, "user.recovery_code_use", user.Name, "")
 	return true
 }
 
@@ -374,16 +414,9 @@ func (a *App) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 			a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "当前密码不正确.")
 			return
 		}
-	} else {
-		step, valid := auth.ValidateTOTP(user.TOTPSecret, r.FormValue("totp_code"))
-		if !valid {
-			a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "两步验证码不正确或已过期.")
-			return
-		}
-		if !a.consumeTOTPCode(r.Context(), user, step) {
-			a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "这个验证码已经用过, 请输入新的验证码.")
-			return
-		}
+	} else if !a.checkSecondFactor(r.Context(), user, r.FormValue("totp_code"), r.FormValue("recovery_code")) {
+		a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "验证码或恢复码不正确.")
+		return
 	}
 	if err := a.store.DisableTOTP(r.Context(), user.ID); err != nil {
 		slog.Error("disable totp failed", "err", err)
@@ -397,6 +430,90 @@ func (a *App) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = a.store.LogAudit(r.Context(), user.ID, "user.totp_disable", user.Name, "")
 	a.redirect(w, r, "/account?notice=totp_disabled", http.StatusSeeOther)
+}
+
+func (a *App) handleRecoveryGenerate(w http.ResponseWriter, r *http.Request) {
+	session, ok := a.requireRight(w, r, "")
+	if !ok {
+		return
+	}
+	if !a.parseGuard(w, r, session) {
+		return
+	}
+	user, err := a.store.UserByID(r.Context(), session.User.ID)
+	if err != nil {
+		slog.Error("load recovery user failed", "err", err)
+		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法读取账号信息.")
+		return
+	}
+	if !user.TOTPEnabled {
+		a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "请先开启两步验证.")
+		return
+	}
+	if user.PasswordHash != "" {
+		limitKey := "password:" + strconv.FormatInt(user.ID, 10)
+		if !a.auth.AllowLogin(limitKey) {
+			a.renderMessage(w, r, http.StatusTooManyRequests, "操作失败", "尝试次数过多, 请稍后再试.")
+			return
+		}
+		if !auth.VerifyPassword(user.PasswordHash, r.FormValue("password")) {
+			a.auth.RecordLoginFailure(limitKey)
+			a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "当前密码不正确.")
+			return
+		}
+		a.auth.RecordLoginSuccess(limitKey)
+	} else if !a.checkSecondFactor(r.Context(), user, r.FormValue("totp_code"), r.FormValue("recovery_code")) {
+		a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "验证码或恢复码不正确.")
+		return
+	}
+	codes, err := auth.GenerateRecoveryCodes(auth.RecoveryCodeCount)
+	if err != nil {
+		slog.Error("generate recovery codes failed", "err", err)
+		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法生成恢复码.")
+		return
+	}
+	hashes := make([]string, 0, len(codes))
+	formatted := make([]string, 0, len(codes))
+	for _, code := range codes {
+		hashes = append(hashes, auth.HashRecoveryCode(code))
+		formatted = append(formatted, auth.FormatRecoveryCode(code))
+	}
+	if err := a.store.ReplaceRecoveryCodes(r.Context(), user.ID, hashes, user.ID); err != nil {
+		slog.Error("replace recovery codes failed", "err", err)
+		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法生成恢复码.")
+		return
+	}
+	data, err := a.buildAccountData(r, session)
+	if err != nil {
+		slog.Error("load account after recovery generate failed", "err", err)
+		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "恢复码已生成, 请重新打开账号页查看.")
+		return
+	}
+	data.NewRecoveryCodes = formatted
+	data.Notice = a.noticeText("recovery_codes_generated")
+	a.renderUI(w, r, http.StatusOK, "account", data)
+}
+
+func (a *App) handleTOTPQR(w http.ResponseWriter, r *http.Request) {
+	session, ok := a.requireRight(w, r, "")
+	if !ok {
+		return
+	}
+	user, err := a.store.UserByID(r.Context(), session.User.ID)
+	if err != nil || user.TOTPSecret == "" || user.TOTPEnabled {
+		http.NotFound(w, r)
+		return
+	}
+	png, err := qrcode.Encode(auth.OTPAuthURL(a.totpIssuer(), user.Name, user.TOTPSecret), qrcode.Medium, 240)
+	if err != nil {
+		slog.Error("generate totp qr failed", "err", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(png)
 }
 
 func (a *App) handleAccountPassword(w http.ResponseWriter, r *http.Request) {

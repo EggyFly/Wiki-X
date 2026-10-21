@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"wikix/internal/i18n"
-	"wikix/internal/site"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/i18n"
+	"github.com/EggyFly/Wiki-X/internal/site"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 func TestCSVSafe(t *testing.T) {
@@ -66,6 +66,10 @@ func TestUIRender(t *testing.T) {
 		{"verify", verifyData{baseData: base}, "两步验证"},
 		{"edit", editData{baseData: base, Route: "/x/", PageTitle: "X", Body: "body"}, "保存"},
 		{"edit", editData{baseData: base, Route: "/x/", PageTitle: "X", Body: "body"}, "preview-toggle"},
+		{"edit", editData{baseData: base, Route: "/x/", PageTitle: "X", Body: "body"}, `data-md="strike"`},
+		{"edit", editData{baseData: base, Route: "/x/", PageTitle: "X", Body: "body"}, `data-md="task"`},
+		{"edit", editData{baseData: base, Route: "/x/", PageTitle: "X", Body: "body"}, `data-md="hr"`},
+		{"edit", editData{baseData: base, Route: "/x/", PageTitle: "X", Body: "body"}, `data-chars-label="字符数"`},
 		{"history", historyData{baseData: base, Route: "/x/", Revisions: []*store.Revision{{ID: 1, Route: "/x/", Status: "published", CreatedAt: time.Now()}}}, "历史版本"},
 		{"revision", revisionData{baseData: base, Revision: &store.Revision{ID: 1, Route: "/x/", Status: "published", CreatedAt: time.Now()}, Diff: "diff"}, "版本 #1"},
 		{"review", reviewData{baseData: base}, "待审核"},
@@ -177,7 +181,7 @@ func TestUIRenderEnglish(t *testing.T) {
 			t.Fatalf("missing %q", want)
 		}
 	}
-	if strings.Contains(html, "用户名") {
+	if strings.Contains(html, "用户管理") {
 		t.Fatal("chinese label leaked into english page")
 	}
 }

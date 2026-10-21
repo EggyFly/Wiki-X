@@ -1,0 +1,19 @@
+{{define "main"}}
+<section class="panel auth-panel">
+  <h1>{{.T.forgot_title}}</h1>
+  {{if .Sent}}
+  <p class="muted">{{.T.forgot_sent}}</p>
+  {{else}}
+  <p class="muted">{{.T.forgot_hint}}</p>
+  <form method="post" action="/forgot" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label class="field">
+      <span>{{.T.account_email}}</span>
+      <input type="email" name="email" autocomplete="email" required maxlength="320">
+    </label>
+    <button class="btn btn-primary" type="submit">{{.T.forgot_submit}}</button>
+  </form>
+  {{end}}
+  <p class="muted"><a href="/login">{{.T.login}}</a></p>
+</section>
+{{end}}

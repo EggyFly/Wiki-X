@@ -15,16 +15,18 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"wikix/internal/auth"
-	"wikix/internal/build"
-	"wikix/internal/config"
-	gitsource "wikix/internal/content/gitsource"
-	"wikix/internal/server"
-	"wikix/internal/site"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/audit"
+	"github.com/EggyFly/Wiki-X/internal/auth"
+	"github.com/EggyFly/Wiki-X/internal/build"
+	"github.com/EggyFly/Wiki-X/internal/config"
+	gitsource "github.com/EggyFly/Wiki-X/internal/content/gitsource"
+	"github.com/EggyFly/Wiki-X/internal/search"
+	"github.com/EggyFly/Wiki-X/internal/server"
+	"github.com/EggyFly/Wiki-X/internal/site"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
-const version = "0.2.0-dev"
+const version = "0.3.0"
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
@@ -46,8 +48,14 @@ func main() {
 		err = runMigrate(ctx, os.Args[2:])
 	case "import":
 		err = runImport(ctx, os.Args[2:])
+	case "warm":
+		err = runWarm(ctx, os.Args[2:])
 	case "user":
 		err = runUser(ctx, os.Args[2:])
+	case "audit":
+		err = runAudit(ctx, os.Args[2:])
+	case "search":
+		err = runSearch(ctx, os.Args[2:])
 	case "version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -195,6 +203,9 @@ func runServe(ctx context.Context, args []string) error {
 		slog.Info("auto reload enabled", "interval", every)
 		go loaded.AutoReload(ctx, every)
 	}
+	if data != nil {
+		go audit.RunWorker(ctx, data, cfg.Audit)
+	}
 	return server.RunApp(ctx, app, cfg.Server.Addr)
 }
 
@@ -272,6 +283,107 @@ func runImport(ctx context.Context, args []string) error {
 		return err
 	}
 	slog.Info("import done", "created", created, "updated", updated, "source", dir)
+	return nil
+}
+
+func runWarm(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("warm", flag.ContinueOnError)
+	configPath := flags.String("config", "wikix.yaml", "path to config file")
+	skin := flags.String("skin", "", "skin to warm, empty uses theme.default")
+	concurrency := flags.Int("concurrency", 4, "parallel render workers")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	var data *store.Store
+	var loaded *site.Site
+	if cfg.Content.Source == "postgres" {
+		data, err = openStore(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		defer data.Close()
+		if cfg.Database.AutoMigrate {
+			if err := data.Migrate(ctx); err != nil {
+				return err
+			}
+		}
+		loaded, err = site.LoadWithSource(ctx, cfg, data)
+	} else {
+		loaded, err = site.Load(ctx, cfg)
+	}
+	if err != nil {
+		return err
+	}
+	defer loaded.Close()
+	target := strings.TrimSpace(*skin)
+	if target == "" {
+		target = strings.TrimSpace(cfg.Theme.Default)
+	}
+	if target == "" {
+		target = "default"
+	}
+	started := time.Now()
+	count, err := loaded.Warm(ctx, target, *concurrency)
+	if err != nil {
+		return err
+	}
+	slog.Info("warm done", "pages", count, "skin", target, "dur", time.Since(started).String())
+	return nil
+}
+
+func runSearch(ctx context.Context, args []string) error {
+	if len(args) == 0 || args[0] != "reindex" {
+		return errors.New("usage: wikix search reindex [flags]")
+	}
+	flags := flag.NewFlagSet("search reindex", flag.ContinueOnError)
+	configPath := flags.String("config", "wikix.yaml", "path to config file")
+	if err := flags.Parse(args[1:]); err != nil {
+		return err
+	}
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	if cfg.Search.Backend != "meilisearch" {
+		return errors.New("search.backend is not meilisearch")
+	}
+	data, err := openStore(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer data.Close()
+	pages, err := data.Load(ctx)
+	if err != nil {
+		return err
+	}
+	client := search.NewClient(cfg.Search.URL, cfg.Search.APIKey, cfg.Search.Index)
+	if err := client.Clear(ctx); err != nil {
+		return err
+	}
+	for start := 0; start < len(pages); start += 50 {
+		end := start + 50
+		if end > len(pages) {
+			end = len(pages)
+		}
+		documents := make([]search.Document, 0, end-start)
+		for _, page := range pages[start:end] {
+			documents = append(documents, search.Document{
+				ID:          search.DocumentID(page.Route),
+				Route:       page.Route,
+				Title:       page.Title,
+				Description: page.Description,
+				Body:        page.Body,
+			})
+		}
+		if err := client.Index(ctx, documents); err != nil {
+			return err
+		}
+	}
+	slog.Info("search reindex submitted", "pages", len(pages), "index", cfg.Search.Index)
 	return nil
 }
 
@@ -366,6 +478,40 @@ func runUserGrant(ctx context.Context, args []string) error {
 	return nil
 }
 
+func runAudit(ctx context.Context, args []string) error {
+	if len(args) == 0 || args[0] != "archive" {
+		return errors.New("usage: wikix audit archive [flags]")
+	}
+	flags := flag.NewFlagSet("audit archive", flag.ContinueOnError)
+	configPath := flags.String("config", "wikix.yaml", "path to config file")
+	if err := flags.Parse(args[1:]); err != nil {
+		return err
+	}
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	if cfg.Audit.RetentionDuration() <= 0 {
+		return errors.New("audit.retention is disabled")
+	}
+	data, err := openStore(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer data.Close()
+	cutoff := time.Now().Add(-cfg.Audit.RetentionDuration())
+	result, err := audit.Archive(ctx, data, cfg.Audit.ArchiveDir, cutoff)
+	if err != nil {
+		return err
+	}
+	if result.Count == 0 {
+		slog.Info("audit archive: nothing to archive")
+		return nil
+	}
+	slog.Info("audit archive done", "file", result.File, "archived", result.Count, "deleted", result.Deleted)
+	return nil
+}
+
 func openStore(ctx context.Context, cfg *config.Config) (*store.Store, error) {
 	if strings.TrimSpace(cfg.Database.URL) == "" {
 		return nil, errors.New("database.url is required, set it in config or WIKIX_DATABASE_URL")
@@ -385,5 +531,5 @@ func gitPullFunc(dir string) func(context.Context) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: wikix <build|serve|migrate|import|user|version> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: wikix <build|serve|migrate|import|warm|user|audit|search|version> [flags]")
 }

@@ -31,6 +31,9 @@ func (s *Store) CreateUser(ctx context.Context, name, email, passwordHash string
 
 	if _, err := tx.Exec(ctx, `INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3)`,
 		name, email, passwordHash); err != nil {
+		if isEmailUniqueViolation(err) {
+			return nil, ErrEmailExists
+		}
 		if isUniqueViolation(err) {
 			return nil, fmt.Errorf("%w: %s", ErrUserExists, name)
 		}
@@ -47,16 +50,20 @@ func (s *Store) CreateUser(ctx context.Context, name, email, passwordHash string
 }
 
 func (s *Store) UserByName(ctx context.Context, name string) (*User, error) {
-	return s.scanUser(ctx, `SELECT id, name, email, password_hash, disabled, totp_secret, totp_enabled, totp_secret_set_at, created_at FROM users WHERE name = $1`, name)
+	return s.scanUser(ctx, `SELECT id, name, email, email_verified, password_hash, disabled, totp_secret, totp_enabled, totp_secret_set_at, created_at FROM users WHERE name = $1 AND deleted_at IS NULL`, name)
 }
 
 func (s *Store) UserByID(ctx context.Context, id int64) (*User, error) {
-	return s.scanUser(ctx, `SELECT id, name, email, password_hash, disabled, totp_secret, totp_enabled, totp_secret_set_at, created_at FROM users WHERE id = $1`, id)
+	return s.scanUser(ctx, `SELECT id, name, email, email_verified, password_hash, disabled, totp_secret, totp_enabled, totp_secret_set_at, created_at FROM users WHERE id = $1 AND deleted_at IS NULL`, id)
+}
+
+func (s *Store) UserByEmail(ctx context.Context, email string) (*User, error) {
+	return s.scanUser(ctx, `SELECT id, name, email, email_verified, password_hash, disabled, totp_secret, totp_enabled, totp_secret_set_at, created_at FROM users WHERE lower(email) = lower($1) AND email <> '' ORDER BY id LIMIT 1`, email)
 }
 
 func (s *Store) scanUser(ctx context.Context, query string, arg any) (*User, error) {
 	user := &User{Rights: make(map[string]bool)}
-	err := s.pool.QueryRow(ctx, query, arg).Scan(&user.ID, &user.Name, &user.Email, &user.PasswordHash, &user.Disabled, &user.TOTPSecret, &user.TOTPEnabled, &user.TOTPSecretSetAt, &user.CreatedAt)
+	err := s.pool.QueryRow(ctx, query, arg).Scan(&user.ID, &user.Name, &user.Email, &user.EmailVerified, &user.PasswordHash, &user.Disabled, &user.TOTPSecret, &user.TOTPEnabled, &user.TOTPSecretSetAt, &user.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -135,7 +142,7 @@ func (s *Store) GrantGroup(ctx context.Context, userName, groupName string) erro
 
 func (s *Store) CountUsers(ctx context.Context) (int, error) {
 	var count int
-	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&count)
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE deleted_at IS NULL`).Scan(&count)
 	return count, err
 }
 
@@ -146,11 +153,12 @@ func (s *Store) ListUsers(ctx context.Context, limit, offset int) ([]*User, erro
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.pool.Query(ctx, `SELECT u.id, u.name, u.email, u.disabled, u.totp_enabled, u.created_at,
+	rows, err := s.pool.Query(ctx, `SELECT u.id, u.name, u.email, u.email_verified, u.disabled, u.totp_enabled, u.created_at,
 			COALESCE(array_agg(g.name ORDER BY g.name) FILTER (WHERE g.name IS NOT NULL), '{}')
 		FROM users u
 		LEFT JOIN user_groups ug ON ug.user_id = u.id
 		LEFT JOIN groups g ON g.id = ug.group_id
+		WHERE u.deleted_at IS NULL
 		GROUP BY u.id
 		ORDER BY u.created_at DESC, u.id DESC
 		LIMIT $1 OFFSET $2`, limit, offset)
@@ -162,7 +170,7 @@ func (s *Store) ListUsers(ctx context.Context, limit, offset int) ([]*User, erro
 	users := make([]*User, 0, limit)
 	for rows.Next() {
 		user := &User{}
-		if err := rows.Scan(&user.ID, &user.Name, &user.Email, &user.Disabled, &user.TOTPEnabled, &user.CreatedAt, &user.Groups); err != nil {
+		if err := rows.Scan(&user.ID, &user.Name, &user.Email, &user.EmailVerified, &user.Disabled, &user.TOTPEnabled, &user.CreatedAt, &user.Groups); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -186,7 +194,7 @@ func (s *Store) SetUserGroups(ctx context.Context, userID int64, groups []string
 
 	var name string
 	var disabled bool
-	err = tx.QueryRow(ctx, `SELECT name, disabled FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&name, &disabled)
+	err = tx.QueryRow(ctx, `SELECT name, disabled FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, userID).Scan(&name, &disabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -258,7 +266,7 @@ func (s *Store) SetUserDisabled(ctx context.Context, userID int64, disabled bool
 
 	var name string
 	var current bool
-	err = tx.QueryRow(ctx, `SELECT name, disabled FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&name, &current)
+	err = tx.QueryRow(ctx, `SELECT name, disabled FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, userID).Scan(&name, &current)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -372,6 +380,9 @@ func (s *Store) DisableTOTP(ctx context.Context, userID int64) error {
 		return ErrNotFound
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM recovery_codes WHERE user_id = $1`, userID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

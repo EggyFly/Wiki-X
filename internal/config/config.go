@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -16,16 +17,22 @@ import (
 )
 
 type Config struct {
-	Site     SiteConfig     `yaml:"site"`
-	Content  ContentConfig  `yaml:"content"`
-	Theme    ThemeConfig    `yaml:"theme"`
-	Server   ServerConfig   `yaml:"server"`
-	Cache    CacheConfig    `yaml:"cache"`
-	Database DatabaseConfig `yaml:"database"`
-	Auth     AuthConfig     `yaml:"auth"`
-	GitHub   GitHubConfig   `yaml:"github"`
-	Media    MediaConfig    `yaml:"media"`
-	Comment  CommentConfig  `yaml:"comment"`
+	Site         SiteConfig         `yaml:"site"`
+	Content      ContentConfig      `yaml:"content"`
+	Theme        ThemeConfig        `yaml:"theme"`
+	Server       ServerConfig       `yaml:"server"`
+	Cache        CacheConfig        `yaml:"cache"`
+	Database     DatabaseConfig     `yaml:"database"`
+	Auth         AuthConfig         `yaml:"auth"`
+	GitHub       GitHubConfig       `yaml:"github"`
+	Media        MediaConfig        `yaml:"media"`
+	Comment      CommentConfig      `yaml:"comment"`
+	Mail         MailConfig         `yaml:"mail"`
+	Registration RegistrationConfig `yaml:"registration"`
+	Audit        AuditConfig        `yaml:"audit"`
+	RateLimit    RateLimitConfig    `yaml:"ratelimit"`
+	Search       SearchConfig       `yaml:"search"`
+	Metrics      MetricsConfig      `yaml:"metrics"`
 }
 
 type SiteConfig struct {
@@ -129,6 +136,47 @@ type CommentConfig struct {
 	BlockedWords []string `yaml:"blocked_words"`
 }
 
+type MailConfig struct {
+	Host        string `yaml:"host"`
+	Port        int    `yaml:"port"`
+	Username    string `yaml:"username"`
+	Password    string `yaml:"password"`
+	From        string `yaml:"from"`
+	ImplicitTLS bool   `yaml:"implicit_tls"`
+}
+
+type RegistrationConfig struct {
+	Mode         string `yaml:"mode"`
+	DefaultGroup string `yaml:"default_group"`
+}
+
+type AuditConfig struct {
+	Retention  string `yaml:"retention"`
+	ArchiveDir string `yaml:"archive_dir"`
+	Interval   string `yaml:"interval"`
+}
+
+type RateLimitConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	Requests      int    `yaml:"requests"`
+	Window        string `yaml:"window"`
+	RouteRequests int    `yaml:"route_requests"`
+	RouteWindow   string `yaml:"route_window"`
+}
+
+type SearchConfig struct {
+	Backend string `yaml:"backend"`
+	URL     string `yaml:"url"`
+	APIKey  string `yaml:"api_key"`
+	Index   string `yaml:"index"`
+}
+
+type MetricsConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Path    string `yaml:"path"`
+	Token   string `yaml:"token"`
+}
+
 func Load(path string) (*Config, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -230,6 +278,99 @@ func (c *Config) applyEnv() error {
 	if value := strings.TrimSpace(os.Getenv("WIKIX_GITHUB_API_BASE_URL")); value != "" {
 		c.GitHub.APIBaseURL = value
 	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_MAIL_HOST")); value != "" {
+		c.Mail.Host = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_MAIL_PORT")); value != "" {
+		port, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("WIKIX_MAIL_PORT: %w", err)
+		}
+		c.Mail.Port = port
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_MAIL_USERNAME")); value != "" {
+		c.Mail.Username = value
+	}
+	if value, ok := os.LookupEnv("WIKIX_MAIL_PASSWORD"); ok {
+		c.Mail.Password = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_MAIL_FROM")); value != "" {
+		c.Mail.From = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_MAIL_IMPLICIT_TLS")); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("WIKIX_MAIL_IMPLICIT_TLS: %w", err)
+		}
+		c.Mail.ImplicitTLS = enabled
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_REGISTRATION_MODE")); value != "" {
+		c.Registration.Mode = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_REGISTRATION_DEFAULT_GROUP")); value != "" {
+		c.Registration.DefaultGroup = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_AUDIT_RETENTION")); value != "" {
+		c.Audit.Retention = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_AUDIT_ARCHIVE_DIR")); value != "" {
+		c.Audit.ArchiveDir = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_AUDIT_INTERVAL")); value != "" {
+		c.Audit.Interval = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_RATE_LIMIT_ENABLED")); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("WIKIX_RATE_LIMIT_ENABLED: %w", err)
+		}
+		c.RateLimit.Enabled = enabled
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_RATE_LIMIT_REQUESTS")); value != "" {
+		requests, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("WIKIX_RATE_LIMIT_REQUESTS: %w", err)
+		}
+		c.RateLimit.Requests = requests
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_RATE_LIMIT_WINDOW")); value != "" {
+		c.RateLimit.Window = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_RATE_LIMIT_ROUTE_REQUESTS")); value != "" {
+		requests, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("WIKIX_RATE_LIMIT_ROUTE_REQUESTS: %w", err)
+		}
+		c.RateLimit.RouteRequests = requests
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_RATE_LIMIT_ROUTE_WINDOW")); value != "" {
+		c.RateLimit.RouteWindow = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_SEARCH_BACKEND")); value != "" {
+		c.Search.Backend = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_SEARCH_URL")); value != "" {
+		c.Search.URL = value
+	}
+	if value, ok := os.LookupEnv("WIKIX_SEARCH_API_KEY"); ok {
+		c.Search.APIKey = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_SEARCH_INDEX")); value != "" {
+		c.Search.Index = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_METRICS_ENABLED")); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("WIKIX_METRICS_ENABLED: %w", err)
+		}
+		c.Metrics.Enabled = enabled
+	}
+	if value := strings.TrimSpace(os.Getenv("WIKIX_METRICS_PATH")); value != "" {
+		c.Metrics.Path = value
+	}
+	if value, ok := os.LookupEnv("WIKIX_METRICS_TOKEN"); ok {
+		c.Metrics.Token = value
+	}
 	return nil
 }
 
@@ -311,6 +452,49 @@ func (c *Config) setDefault() {
 	if c.GitHub.APIBaseURL == "" {
 		c.GitHub.APIBaseURL = "https://api.github.com"
 	}
+	if c.Mail.Host != "" && c.Mail.Port == 0 {
+		c.Mail.Port = 587
+	}
+	c.Mail.Host = strings.TrimSpace(c.Mail.Host)
+	c.Mail.From = strings.TrimSpace(c.Mail.From)
+	c.Registration.Mode = strings.ToLower(strings.TrimSpace(c.Registration.Mode))
+	if c.Registration.Mode == "" {
+		c.Registration.Mode = "off"
+	}
+	if strings.TrimSpace(c.Registration.DefaultGroup) == "" {
+		c.Registration.DefaultGroup = "user"
+	}
+	if c.Audit.Retention == "" {
+		c.Audit.Retention = "0s"
+	}
+	if c.Audit.ArchiveDir == "" {
+		c.Audit.ArchiveDir = "data/audit"
+	}
+	if c.Audit.Interval == "" {
+		c.Audit.Interval = "24h"
+	}
+	if c.RateLimit.Requests == 0 {
+		c.RateLimit.Requests = 300
+	}
+	if c.RateLimit.Window == "" {
+		c.RateLimit.Window = "1m"
+	}
+	if c.RateLimit.RouteWindow == "" {
+		c.RateLimit.RouteWindow = "1m"
+	}
+	c.Search.Backend = strings.ToLower(strings.TrimSpace(c.Search.Backend))
+	if c.Search.Backend == "" {
+		c.Search.Backend = "auto"
+	}
+	c.Search.URL = strings.TrimRight(strings.TrimSpace(c.Search.URL), "/")
+	if strings.TrimSpace(c.Search.Index) == "" {
+		c.Search.Index = "wikix"
+	}
+	c.Search.Index = strings.TrimSpace(c.Search.Index)
+	c.Metrics.Path = strings.TrimSpace(c.Metrics.Path)
+	if c.Metrics.Path == "" {
+		c.Metrics.Path = "/-/metrics"
+	}
 }
 
 func (c *Config) resolvePaths(baseDir string) {
@@ -328,6 +512,9 @@ func (c *Config) resolvePaths(baseDir string) {
 	}
 	if !filepath.IsAbs(c.Media.Dir) {
 		c.Media.Dir = filepath.Join(baseDir, c.Media.Dir)
+	}
+	if !filepath.IsAbs(c.Audit.ArchiveDir) {
+		c.Audit.ArchiveDir = filepath.Join(baseDir, c.Audit.ArchiveDir)
 	}
 }
 
@@ -490,7 +677,137 @@ func (c *Config) check() error {
 	if c.Media.MaxSize < 1 {
 		return fmt.Errorf("media.max_size must be positive")
 	}
+	if (c.Mail.Host == "") != (c.Mail.From == "") {
+		return fmt.Errorf("mail.host and mail.from must be set together")
+	}
+	if c.Mail.Host != "" {
+		if c.Mail.Port < 1 || c.Mail.Port > 65535 {
+			return fmt.Errorf("mail.port must be between 1 and 65535")
+		}
+		if _, err := mail.ParseAddress(c.Mail.From); err != nil {
+			return fmt.Errorf("mail.from must be a valid address")
+		}
+		if c.Site.BaseURL == "" {
+			return fmt.Errorf("site.base_url is required when mail is configured")
+		}
+	}
+	switch c.Registration.Mode {
+	case "off", "invite", "open":
+	default:
+		return fmt.Errorf("registration.mode must be off, invite or open")
+	}
+	if c.Registration.Mode == "open" && !c.Mail.Enabled() {
+		return fmt.Errorf("registration.mode open requires mail configuration")
+	}
+	if strings.ContainsAny(c.Registration.DefaultGroup, "/\\ \t\r\n") || c.Registration.DefaultGroup == "" {
+		return fmt.Errorf("registration.default_group is invalid")
+	}
+	retention, err := time.ParseDuration(c.Audit.Retention)
+	if err != nil || retention < 0 {
+		return fmt.Errorf("audit.retention must be a non-negative duration")
+	}
+	if retention > 0 && retention < 180*24*time.Hour {
+		return fmt.Errorf("audit.retention must be at least 180 days when enabled")
+	}
+	interval, err := time.ParseDuration(c.Audit.Interval)
+	if err != nil || interval <= 0 {
+		return fmt.Errorf("audit.interval must be a positive duration")
+	}
+	if strings.TrimSpace(c.Audit.ArchiveDir) == "" {
+		return fmt.Errorf("audit.archive_dir is required")
+	}
+	if c.RateLimit.Requests < 1 {
+		return fmt.Errorf("ratelimit.requests must be positive")
+	}
+	rateWindow, err := time.ParseDuration(c.RateLimit.Window)
+	if err != nil || rateWindow <= 0 {
+		return fmt.Errorf("ratelimit.window must be a positive duration")
+	}
+	if c.RateLimit.RouteRequests < 0 {
+		return fmt.Errorf("ratelimit.route_requests cannot be negative")
+	}
+	routeWindow, err := time.ParseDuration(c.RateLimit.RouteWindow)
+	if err != nil || routeWindow <= 0 {
+		return fmt.Errorf("ratelimit.route_window must be a positive duration")
+	}
+	switch c.Search.Backend {
+	case "auto", "memory", "postgres", "meilisearch":
+	default:
+		return fmt.Errorf("search.backend must be auto, memory, postgres or meilisearch")
+	}
+	if (c.Search.Backend == "postgres" || c.Search.Backend == "meilisearch") && c.Content.Source != "postgres" {
+		return fmt.Errorf("search.backend %s requires content.source postgres", c.Search.Backend)
+	}
+	if c.Search.Backend == "meilisearch" {
+		if !strings.HasPrefix(c.Search.URL, "http://") && !strings.HasPrefix(c.Search.URL, "https://") {
+			return fmt.Errorf("search.url must be a http(s) url")
+		}
+		if !validSearchIndex(c.Search.Index) {
+			return fmt.Errorf("search.index is invalid")
+		}
+	}
+	if c.Metrics.Enabled {
+		if !strings.HasPrefix(c.Metrics.Path, "/") || strings.Contains(c.Metrics.Path, "..") {
+			return fmt.Errorf("metrics.path must be a site path")
+		}
+		switch c.Metrics.Path {
+		case "/", "/assets/", "/-/assets/", "/-/healthz", "/media/":
+			return fmt.Errorf("metrics.path is reserved")
+		}
+		for _, r := range c.Metrics.Path {
+			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '/' || r == '-' || r == '_' {
+				continue
+			}
+			return fmt.Errorf("metrics.path contains an invalid character")
+		}
+	}
 	return nil
+}
+
+func (c AuditConfig) RetentionDuration() time.Duration {
+	value, _ := time.ParseDuration(c.Retention)
+	return value
+}
+
+func validSearchIndex(name string) bool {
+	if name == "" || len(name) > 64 {
+		return false
+	}
+	for _, r := range name {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func (c RateLimitConfig) WindowDuration() time.Duration {
+	value, _ := time.ParseDuration(c.Window)
+	if value <= 0 {
+		return time.Minute
+	}
+	return value
+}
+
+func (c RateLimitConfig) RouteWindowDuration() time.Duration {
+	value, _ := time.ParseDuration(c.RouteWindow)
+	if value <= 0 {
+		return time.Minute
+	}
+	return value
+}
+
+func (c AuditConfig) IntervalDuration() time.Duration {
+	value, _ := time.ParseDuration(c.Interval)
+	if value <= 0 {
+		return 24 * time.Hour
+	}
+	return value
+}
+
+func (c MailConfig) Enabled() bool {
+	return strings.TrimSpace(c.Host) != "" && strings.TrimSpace(c.From) != ""
 }
 
 func (c ContentConfig) ReloadEvery() time.Duration {

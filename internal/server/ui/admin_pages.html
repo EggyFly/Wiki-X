@@ -1,0 +1,78 @@
+{{define "main"}}
+<section class="panel">
+  <h1>{{.T.page_admin}}</h1>
+  <p class="muted">{{.T.page_admin_hint}}</p>
+  <form method="get" action="/admin/pages" class="toolbar">
+    <label class="field">
+      <span>{{.T.status}}</span>
+      <select name="status">
+        <option value="all"{{if eq .Status "all"}} selected{{end}}>{{.T.page_filter_all}}</option>
+        <option value="active"{{if eq .Status "active"}} selected{{end}}>{{.T.page_filter_active}}</option>
+        <option value="deleted"{{if eq .Status "deleted"}} selected{{end}}>{{.T.page_filter_deleted}}</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>{{.T.search}}</span>
+      <input name="q" value="{{.Query}}" maxlength="100">
+    </label>
+    <div class="toolbar"><button class="btn" type="submit">{{.T.search_button}}</button></div>
+  </form>
+</section>
+
+<section class="panel">
+  {{if .Pages}}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>{{.T.page}}</th>
+          <th>{{.T.status}}</th>
+          <th>{{.T.updated}}</th>
+          <th>{{.T.version}}</th>
+          <th>{{.T.deleted_by}}</th>
+          <th>{{.T.delete_reason}}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Pages}}
+        <tr>
+          <td><a href="{{.Route}}">{{.Title}}</a><div class="muted"><code>{{.Route}}</code></div></td>
+          <td>{{if .DeletedAt}}<span class="badge badge-pending">{{$.T.page_filter_deleted}}</span>{{else}}{{$.T.active}}{{end}}</td>
+          <td>{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
+          <td>{{.Revisions}}</td>
+          <td>{{if .DeletedByName}}{{.DeletedByName}}{{else}}-{{end}}</td>
+          <td>{{if .DeleteReason}}{{.DeleteReason}}{{else}}-{{end}}</td>
+          <td>
+            {{if .DeletedAt}}
+            <form method="post" action="/admin/pages/restore" class="inline-form">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="route" value="{{.Route}}">
+              <button class="btn btn-small" type="submit">{{$.T.page_restore}}</button>
+            </form>
+            {{else}}
+            <form method="post" action="/admin/pages/delete" class="form-grid compact-form">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="route" value="{{.Route}}">
+              <input name="reason" maxlength="500" placeholder="{{$.T.delete_reason}}" required>
+              <button class="btn btn-danger btn-small" type="submit">{{$.T.page_delete}}</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{if gt .Pager.Pages 1}}
+  <div class="toolbar">
+    {{if .Pager.HasPrev}}<a class="btn btn-small" href="/admin/pages?status={{.Status}}&q={{urlquery .Query}}&page={{.Pager.PrevPage}}">{{.T.prev_page}}</a>{{end}}
+    <span class="muted">{{.Pager.Page}} / {{.Pager.Pages}}</span>
+    {{if .Pager.HasNext}}<a class="btn btn-small" href="/admin/pages?status={{.Status}}&q={{urlquery .Query}}&page={{.Pager.NextPage}}">{{.T.next_page}}</a>{{end}}
+  </div>
+  {{end}}
+  {{else}}
+  <p class="muted">{{.T.no_pages_admin}}</p>
+  {{end}}
+</section>
+{{end}}

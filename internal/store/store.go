@@ -13,23 +13,30 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"wikix/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/config"
 )
 
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
 var (
-	ErrNotFound      = errors.New("not found")
-	ErrEditConflict  = errors.New("edit conflict")
-	ErrIdentityTaken = errors.New("identity is already linked to another user")
-	ErrProtected     = errors.New("page is protected")
-	ErrLastAdmin     = errors.New("at least one enabled admin is required")
-	ErrBadGroup      = errors.New("unknown group")
-	ErrUserExists    = errors.New("user already exists")
-	ErrGroupExists   = errors.New("group already exists")
-	ErrBadRight      = errors.New("unknown right")
-	ErrBuiltinGroup  = errors.New("builtin group cannot be deleted")
+	ErrNotFound           = errors.New("not found")
+	ErrEditConflict       = errors.New("edit conflict")
+	ErrIdentityTaken      = errors.New("identity is already linked to another user")
+	ErrProtected          = errors.New("page is protected")
+	ErrBadProtection      = errors.New("unknown protection level")
+	ErrLastAdmin          = errors.New("at least one enabled admin is required")
+	ErrBadGroup           = errors.New("unknown group")
+	ErrUserExists         = errors.New("user already exists")
+	ErrEmailExists        = errors.New("email already exists")
+	ErrBadEntity          = errors.New("entity data is invalid")
+	ErrEntityExists       = errors.New("entity already exists")
+	ErrEntityTypeExists   = errors.New("entity type already exists")
+	ErrEntityFieldExists  = errors.New("entity field already exists")
+	ErrEntityTypeNotEmpty = errors.New("entity type still has entities")
+	ErrGroupExists        = errors.New("group already exists")
+	ErrBadRight           = errors.New("unknown right")
+	ErrBuiltinGroup       = errors.New("builtin group cannot be deleted")
 )
 
 type Store struct {

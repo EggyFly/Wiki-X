@@ -12,7 +12,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
 
-	"wikix/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/config"
 )
 
 type githubOAuth struct {

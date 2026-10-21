@@ -1,0 +1,60 @@
+{{define "main"}}
+<section class="panel">
+  <h1>{{.T.entities_title}}</h1>
+  <p class="muted">{{.T.entities_hint}}</p>
+  <div class="toolbar entity-filter">
+    <a class="btn btn-small" href="/entities">{{.T.entity_all}}</a>
+    {{range .Types}}<a class="btn btn-small" href="/entities?type={{.Name}}">{{.Label}}</a>{{end}}
+  </div>
+  {{if .TypeName}}
+  <form method="get" action="/entities" class="toolbar">
+    <input type="hidden" name="type" value="{{.TypeName}}">
+    <label class="field">
+      <span>{{.T.entity_sort}}</span>
+      <select name="sort">
+        <option value="">{{.T.entity_label}}</option>
+        {{$sort := .Sort}}
+        {{range .Fields}}<option value="{{.Name}}"{{if eq .Name $sort}} selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+    </label>
+    <label class="field">
+      <span>{{.T.entity_order}}</span>
+      <select name="order">
+        <option value="asc"{{if eq .Order "asc"}} selected{{end}}>{{.T.entity_order_asc}}</option>
+        <option value="desc"{{if eq .Order "desc"}} selected{{end}}>{{.T.entity_order_desc}}</option>
+      </select>
+    </label>
+    <div class="toolbar"><button class="btn" type="submit">{{.T.entity_apply}}</button></div>
+  </form>
+  {{end}}
+</section>
+
+<section class="panel">
+  {{if .Items}}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>{{.T.entity_label}}</th>
+          {{range .Fields}}<th>{{.Label}}</th>{{end}}
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Items}}
+        <tr>
+          <td>
+            {{if .Route}}<a href="{{.Route}}">{{.Label}}</a>{{else}}{{.Label}}{{end}}
+            <div class="muted"><code>{{.Name}}</code> · {{.TypeLabel}}</div>
+          </td>
+          {{$item := .}}
+          {{range $.Fields}}<td>{{index $item.Data .Name}}</td>{{end}}
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="muted">{{.T.entity_none}}</p>
+  {{end}}
+</section>
+{{end}}

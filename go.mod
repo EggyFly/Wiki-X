@@ -1,11 +1,14 @@
-module wikix
+module github.com/EggyFly/Wiki-X
 
 go 1.27
+
+toolchain go1.27.3
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/redis/go-redis/v9 v9.23.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/yuin/goldmark v1.8.6
 	golang.org/x/crypto v0.58.0
 	golang.org/x/oauth2 v0.37.0

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/csv"
 	"errors"
 	"log/slog"
@@ -14,8 +15,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"wikix/internal/auth"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/auth"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 func (a *App) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
@@ -99,14 +100,24 @@ func (a *App) handleAdminUserCreate(w http.ResponseWriter, r *http.Request) {
 		a.renderMessage(w, r, http.StatusInternalServerError, "创建失败", "暂时无法创建用户.")
 		return
 	}
-	if _, err := a.store.CreateUser(r.Context(), name, email, hash, false); err != nil {
+	user, err := a.store.CreateUser(r.Context(), name, email, hash, false)
+	if err != nil {
 		if errors.Is(err, store.ErrUserExists) {
 			a.renderMessage(w, r, http.StatusConflict, "创建失败", "用户名已存在.")
+			return
+		}
+		if errors.Is(err, store.ErrEmailExists) {
+			a.renderMessage(w, r, http.StatusConflict, "创建失败", "邮箱已被其他账号使用.")
 			return
 		}
 		slog.Error("create user failed", "err", err)
 		a.renderMessage(w, r, http.StatusInternalServerError, "创建失败", "暂时无法创建用户.")
 		return
+	}
+	if a.mailEnabled() && user.Email != "" {
+		if err := a.sendVerifyEmail(r.Context(), user); err != nil {
+			slog.Error("send verify email for new user failed", "err", err, "user", user.ID)
+		}
 	}
 	_ = a.store.LogAudit(r.Context(), session.User.ID, "user.create", name, "")
 	a.redirect(w, r, "/admin/users?notice=user_created", http.StatusSeeOther)
@@ -275,7 +286,7 @@ func (a *App) renderGroupError(w http.ResponseWriter, r *http.Request, err error
 	case errors.Is(err, store.ErrLastAdmin):
 		a.renderMessage(w, r, http.StatusConflict, "操作失败", "必须保留至少一个启用的管理员.")
 	case errors.Is(err, store.ErrNotFound):
-		a.renderMessage(w, r, http.StatusNotFound, "用户组不存在", "没有找到这个用户组.")
+		a.renderMessage(w, r, http.StatusNotFound, "用户组不存在", "没有找到这个用户.")
 	default:
 		slog.Error("group operation failed", "err", err)
 		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", fallback)
@@ -498,27 +509,32 @@ func (a *App) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
 		a.renderMessage(w, r, http.StatusBadRequest, "读取失败", "日期格式应为 YYYY-MM-DD.")
 		return
 	}
-	page, size := adminPage(r, 100)
-	total, err := a.store.CountAuditLogs(r.Context(), filter)
+	_, size := adminPage(r, 100)
+	cursorValue := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	cursor, err := parseAuditCursor(cursorValue)
 	if err != nil {
-		slog.Error("count audit logs failed", "err", err)
-		a.renderMessage(w, r, http.StatusInternalServerError, "读取失败", "暂时无法读取审计日志.")
+		a.renderMessage(w, r, http.StatusBadRequest, "读取失败", "翻页参数不正确.")
 		return
 	}
-	pager := newPager(page, totalPages(total, size), size)
-	logs, err := a.store.ListAuditLogs(r.Context(), filter, size, (pager.Page-1)*size)
+	logs, next, err := a.store.ListAuditLogsPage(r.Context(), filter, cursor, size)
 	if err != nil {
 		slog.Error("list audit logs failed", "err", err)
 		a.renderMessage(w, r, http.StatusInternalServerError, "读取失败", "暂时无法读取审计日志.")
 		return
 	}
+	nextCursor := ""
+	if next != nil {
+		nextCursor = formatAuditCursor(next)
+	}
 	data := adminAuditData{
-		baseData: a.baseData(r, "审计日志"),
-		Logs:     logs,
-		Query:    filter.Query,
-		From:     fromValue,
-		To:       toValue,
-		Pager:    pager,
+		baseData:   a.baseData(r, "审计日志"),
+		Logs:       logs,
+		Query:      filter.Query,
+		From:       fromValue,
+		To:         toValue,
+		Size:       size,
+		Cursor:     cursorValue,
+		NextCursor: nextCursor,
 	}
 	a.renderUI(w, r, http.StatusOK, "admin_audit", data)
 }
@@ -547,6 +563,35 @@ func auditFilter(r *http.Request) (store.AuditFilter, string, string, error) {
 		filter.To = &to
 	}
 	return filter, fromValue, toValue, nil
+}
+
+func parseAuditCursor(raw string) (*store.AuditCursor, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, err
+	}
+	text := string(data)
+	index := strings.LastIndex(text, ":")
+	if index <= 0 || index == len(text)-1 {
+		return nil, errors.New("bad cursor")
+	}
+	nano, err := strconv.ParseInt(text[:index], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	id, err := strconv.ParseInt(text[index+1:], 10, 64)
+	if err != nil || id <= 0 {
+		return nil, errors.New("bad cursor")
+	}
+	return &store.AuditCursor{CreatedAt: time.Unix(0, nano).UTC(), ID: id}, nil
+}
+
+func formatAuditCursor(cursor *store.AuditCursor) string {
+	text := strconv.FormatInt(cursor.CreatedAt.UnixNano(), 10) + ":" + strconv.FormatInt(cursor.ID, 10)
+	return base64.RawURLEncoding.EncodeToString([]byte(text))
 }
 
 func adminPage(r *http.Request, defaultSize int) (int, int) {

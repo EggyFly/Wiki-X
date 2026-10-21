@@ -56,6 +56,9 @@
       return;
     }
     var form = textarea.closest("form");
+    var shell = textarea.closest(".editor-shell");
+    var counter = document.getElementById("editor-count");
+    var charsLabel = shell ? (shell.getAttribute("data-chars-label") || "字符数") : "字符数";
     var csrf = form ? form.querySelector('input[name="csrf_token"]') : null;
     var previewLabel = toolbar.getAttribute("data-preview-label") || "预览";
     var closeLabel = toolbar.getAttribute("data-close-label") || "关闭预览";
@@ -66,10 +69,13 @@
     var actions = {
       bold: function () { wrap(textarea, "**", "**", "粗体"); },
       italic: function () { wrap(textarea, "*", "*", "斜体"); },
+      strike: function () { wrap(textarea, "~~", "~~", "删除线"); },
       heading: function () { prefixLines(textarea, "## "); },
       link: function () { wrap(textarea, "[", "](https://)", "链接文字"); },
       list: function () { prefixLines(textarea, "- "); },
+      task: function () { prefixLines(textarea, "- [ ] "); },
       quote: function () { prefixLines(textarea, "> "); },
+      hr: function () { insertBlock(textarea, "---"); },
       code: function () {
         var selected = textarea.value.slice(textarea.selectionStart || 0, textarea.selectionEnd || 0);
         if (selected && selected.indexOf("\n") === -1) {
@@ -108,7 +114,14 @@
       textarea.focus();
     });
 
+    function updateCount() {
+      if (counter) {
+        counter.textContent = charsLabel + ": " + textarea.value.length;
+      }
+    }
+
     textarea.addEventListener("input", function () {
+      updateCount();
       if (preview.hidden) {
         return;
       }
@@ -116,14 +129,32 @@
       timer = setTimeout(renderPreview, 400);
     });
 
+    textarea.addEventListener("keydown", function (event) {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) {
+        return;
+      }
+      var key = (event.key || "").toLowerCase();
+      var shortcut = key === "b" ? "bold" : key === "i" ? "italic" : key === "k" ? "link" : "";
+      if (!shortcut || !actions[shortcut]) {
+        return;
+      }
+      event.preventDefault();
+      actions[shortcut]();
+    });
+
     toggle.addEventListener("click", function () {
       preview.hidden = !preview.hidden;
       toggle.setAttribute("aria-pressed", preview.hidden ? "false" : "true");
       toggle.textContent = preview.hidden ? previewLabel : closeLabel;
+      if (shell) {
+        shell.classList.toggle("preview-open", !preview.hidden);
+      }
       if (!preview.hidden) {
         renderPreview();
       }
     });
+
+    updateCount();
 
     async function renderPreview() {
       var current = ++sequence;

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"wikix/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/config"
 )
 
 func TestLoadWithBuiltinTheme(t *testing.T) {
@@ -96,6 +96,32 @@ func TestReloadRefreshesStateAndCache(t *testing.T) {
 	refreshed, err := loaded.Render(context.Background(), "/")
 	if err != nil || !strings.Contains(string(refreshed), "beta") {
 		t.Fatalf("expected refreshed page: %v, %s", err, refreshed)
+	}
+}
+
+func TestWarmAndInvalidateRoute(t *testing.T) {
+	contentDir := t.TempDir()
+	writeFile(t, contentDir, "index.md", "---\ntitle: 首页\n---\n\nhome\n")
+	writeFile(t, contentDir, "guide.md", "---\ntitle: 指南\n---\n\nguide\n")
+	loaded, err := Load(context.Background(), testConfig(contentDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = loaded.Close() })
+
+	if _, err := loaded.Render(context.Background(), "/"); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := loaded.InvalidateRoute(context.Background(), "/")
+	if err != nil || keys < 1 {
+		t.Fatalf("invalidate = %d, %v", keys, err)
+	}
+	count, err := loaded.Warm(context.Background(), "", 2)
+	if err != nil || count != 2 {
+		t.Fatalf("warm = %d, %v", count, err)
+	}
+	if _, err := loaded.Warm(context.Background(), "missing", 1); err == nil {
+		t.Fatal("unknown skin should fail")
 	}
 }
 

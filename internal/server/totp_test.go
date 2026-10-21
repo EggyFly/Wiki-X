@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"wikix/internal/auth"
-	"wikix/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/auth"
+	"github.com/EggyFly/Wiki-X/internal/config"
 )
 
 var totpSecretPattern = regexp.MustCompile(`<code class="totp-secret">([A-Z2-7]+)</code>`)

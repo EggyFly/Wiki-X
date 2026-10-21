@@ -123,6 +123,49 @@ func (c *Redis) Delete(ctx context.Context, keys ...string) error {
 	return nil
 }
 
+func (c *Redis) DeleteMatching(ctx context.Context, contains string) (int, error) {
+	if contains == "" {
+		return 0, nil
+	}
+	if err := c.available(); err != nil {
+		return 0, err
+	}
+	deleted := 0
+	batch := make([]string, 0, 100)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if err := c.client.Del(ctx, batch...).Err(); err != nil {
+			return err
+		}
+		deleted += len(batch)
+		batch = batch[:0]
+		return nil
+	}
+	iter := c.client.Scan(ctx, 0, c.key("*"), 500).Iterator()
+	for iter.Next(ctx) {
+		key := iter.Val()
+		if !strings.Contains(key, contains) {
+			continue
+		}
+		batch = append(batch, key)
+		if len(batch) >= 100 {
+			if err := flush(); err != nil {
+				return deleted, c.failed(err)
+			}
+		}
+	}
+	if err := iter.Err(); err != nil {
+		return deleted, c.failed(err)
+	}
+	if err := flush(); err != nil {
+		return deleted, c.failed(err)
+	}
+	c.succeeded()
+	return deleted, nil
+}
+
 func (c *Redis) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
 	if limit <= 0 || window <= 0 {
 		return true, nil

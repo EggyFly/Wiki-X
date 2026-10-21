@@ -15,13 +15,13 @@ import (
 
 	"github.com/pmezard/go-difflib/difflib"
 
-	"wikix/internal/auth"
-	"wikix/internal/content"
-	gitsource "wikix/internal/content/gitsource"
-	"wikix/internal/ghclient"
-	"wikix/internal/i18n"
-	"wikix/internal/site"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/auth"
+	"github.com/EggyFly/Wiki-X/internal/content"
+	gitsource "github.com/EggyFly/Wiki-X/internal/content/gitsource"
+	"github.com/EggyFly/Wiki-X/internal/ghclient"
+	"github.com/EggyFly/Wiki-X/internal/i18n"
+	"github.com/EggyFly/Wiki-X/internal/site"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 func (a *App) handleEditPage(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +68,7 @@ func (a *App) handleEditPage(w http.ResponseWriter, r *http.Request) {
 		data.Body = page.Body
 		data.BaseVersion = page.Version
 		data.TranslationKey = page.TranslationKey
+		data.EntityKey = page.EntityKey
 		if a.github != nil {
 			data.HistoryURL = a.github.HistoryURL(a.githubRepoPath(page.SourcePath))
 		}
@@ -87,6 +88,10 @@ func (a *App) handleEditPage(w http.ResponseWriter, r *http.Request) {
 		a.renderMessage(w, r, http.StatusInternalServerError, "读取失败", "暂时无法读取页面.")
 		return
 	}
+	if page.DeletedAt != nil {
+		a.renderMessage(w, r, http.StatusNotFound, "页面不存在", "页面不存在或已删除.")
+		return
+	}
 	if page.Draft {
 		a.renderMessage(w, r, http.StatusConflict, "页面待审核", "这个页面还有未发布的版本, 请先在审核队列处理.")
 		return
@@ -99,9 +104,10 @@ func (a *App) handleEditPage(w http.ResponseWriter, r *http.Request) {
 	data.BaseVersion = page.Version
 	data.HistoryURL = "/history?route=" + url.QueryEscape(page.Route)
 	data.Protected = page.Protected
+	data.ProtectionLevel = pageProtectionLevel(page)
 	data.CanProtect = session.User.HasRight(auth.RightReview)
-	if page.Protected && !data.CanProtect {
-		a.renderMessage(w, r, http.StatusForbidden, "页面已保护", "这个页面已被保护, 只有审核员可以编辑.")
+	if data.ProtectionLevel == store.ProtectionFull && !data.CanProtect {
+		a.renderMessage(w, r, http.StatusForbidden, "页面已保护", "这个页面已被完全保护, 只有审核员可以编辑.")
 		return
 	}
 	a.renderEdit(w, r, http.StatusOK, data)
@@ -130,6 +136,7 @@ func (a *App) handleEditSave(w http.ResponseWriter, r *http.Request) {
 	comment := strings.TrimSpace(r.FormValue("comment"))
 	baseVersion := strings.TrimSpace(r.FormValue("base_version"))
 	translationKey := strings.TrimSpace(r.FormValue("translation_key"))
+	entityKey := strings.TrimSpace(r.FormValue("entity"))
 	tags := parseTags(r.FormValue("tags"))
 
 	prMode := a.cfg.Content.Source == "git"
@@ -143,6 +150,7 @@ func (a *App) handleEditSave(w http.ResponseWriter, r *http.Request) {
 		Comment:        comment,
 		BaseVersion:    baseVersion,
 		TranslationKey: translationKey,
+		EntityKey:      entityKey,
 		IsNew:          baseVersion == "",
 		PRMode:         prMode,
 		CanUpload:      !prMode && session.User.HasRight(auth.RightUpload),
@@ -159,11 +167,16 @@ func (a *App) handleEditSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if !prMode {
 		page, err := a.store.GetPage(r.Context(), route)
+		if err == nil && page.DeletedAt != nil {
+			a.renderMessage(w, r, http.StatusNotFound, "页面不存在", "页面不存在或已删除.")
+			return
+		}
 		if err == nil {
 			data.Protected = page.Protected
+			data.ProtectionLevel = pageProtectionLevel(page)
 			data.CanProtect = session.User.HasRight(auth.RightReview)
-			if page.Protected && !data.CanProtect {
-				a.renderMessage(w, r, http.StatusForbidden, "页面已保护", "这个页面已被保护, 只有审核员可以编辑.")
+			if data.ProtectionLevel == store.ProtectionFull && !data.CanProtect {
+				a.renderMessage(w, r, http.StatusForbidden, "页面已保护", "这个页面已被完全保护, 只有审核员可以编辑.")
 				return
 			}
 		} else if !errors.Is(err, store.ErrNotFound) {
@@ -196,6 +209,21 @@ func (a *App) handleEditSave(w http.ResponseWriter, r *http.Request) {
 		a.renderEdit(w, r, http.StatusBadRequest, data)
 		return
 	}
+	var entityID *int64
+	if !prMode && entityKey != "" {
+		entity, err := a.store.GetEntityByName(r.Context(), entityKey)
+		if errors.Is(err, store.ErrNotFound) {
+			data.Error = "关联实体不存在."
+			a.renderEdit(w, r, http.StatusBadRequest, data)
+			return
+		}
+		if err != nil {
+			slog.Error("load entity for edit failed", "err", err)
+			a.renderMessage(w, r, http.StatusInternalServerError, "保存失败", "暂时无法读取关联实体.")
+			return
+		}
+		entityID = &entity.ID
+	}
 	for _, tag := range tags {
 		if utf8.RuneCountInString(tag) > 50 {
 			data.Error = "单个标签不能超过 50 个字符."
@@ -221,6 +249,7 @@ func (a *App) handleEditSave(w http.ResponseWriter, r *http.Request) {
 		BaseVersion:            baseVersion,
 		TranslationKey:         translationKey,
 		TranslationBaseVersion: a.translationBaseVersion(r.Context(), route, translationKey),
+		EntityID:               entityID,
 		Publish:                publish,
 		AllowProtected:         publish,
 	})
@@ -243,6 +272,8 @@ func (a *App) handleEditSave(w http.ResponseWriter, r *http.Request) {
 	if revision.Status == store.StatusPublished {
 		notice = "published"
 		a.reloadSite(r.Context())
+		a.invalidateRoute(r.Context(), route)
+		a.syncSearchDocument(r.Context(), route)
 	}
 	a.redirect(w, r, "/history?route="+url.QueryEscape(route)+"&notice="+notice, http.StatusSeeOther)
 }
@@ -269,7 +300,7 @@ func (a *App) translationBaseVersion(ctx context.Context, route, translationKey 
 		}
 		return ""
 	}
-	if base.Draft {
+	if base.Draft || base.DeletedAt != nil {
 		return ""
 	}
 	return base.Version
@@ -510,7 +541,8 @@ func (a *App) handleReviewApprove(w http.ResponseWriter, r *http.Request) {
 		a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "版本编号不正确.")
 		return
 	}
-	if _, err := a.store.PublishRevision(r.Context(), id, session.User.ID); err != nil {
+	route, err := a.store.PublishRevision(r.Context(), id, session.User.ID)
+	if err != nil {
 		if errors.Is(err, store.ErrEditConflict) {
 			a.renderMessage(w, r, http.StatusConflict, "操作失败", "这个版本已经被处理.")
 			return
@@ -520,6 +552,8 @@ func (a *App) handleReviewApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.reloadSite(r.Context())
+	a.invalidateRoute(r.Context(), route)
+	a.syncSearchDocument(r.Context(), route)
 	a.redirect(w, r, "/review?notice=approved", http.StatusSeeOther)
 }
 
@@ -551,6 +585,30 @@ func (a *App) handleReviewReject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.redirect(w, r, "/review?notice=rejected", http.StatusSeeOther)
+}
+
+func pageProtectionLevel(page *store.PageRecord) string {
+	if page.ProtectionLevel != "" {
+		return page.ProtectionLevel
+	}
+	if page.Protected {
+		return store.ProtectionSemi
+	}
+	return store.ProtectionNone
+}
+
+func (a *App) invalidateRoute(ctx context.Context, route string) {
+	if a.site == nil || route == "" {
+		return
+	}
+	deleted, err := a.site.InvalidateRoute(context.WithoutCancel(ctx), route)
+	if err != nil {
+		slog.Warn("invalidate page cache failed", "route", route, "err", err)
+		return
+	}
+	if deleted > 0 {
+		slog.Debug("page cache invalidated", "route", route, "keys", deleted)
+	}
 }
 
 func (a *App) reloadSite(ctx context.Context) {

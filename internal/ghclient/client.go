@@ -152,7 +152,7 @@ func (c *Client) CreatePullRequest(ctx context.Context, input PullRequestInput) 
 	if err != nil {
 		return nil, err
 	}
-	branch := fmt.Sprintf("wikix/%d-%s", time.Now().Unix(), suffix)
+	branch := fmt.Sprintf("github.com/EggyFly/Wiki-X/%d-%s", time.Now().Unix(), suffix)
 	if err := c.do(ctx, http.MethodPost, "/repos/"+c.repo+"/git/refs", map[string]string{
 		"ref": "refs/heads/" + branch,
 		"sha": ref.Object.SHA,
@@ -242,6 +242,49 @@ func (c *Client) FileContent(ctx context.Context, path, ref string) ([]byte, err
 	return data, nil
 }
 
+func (c *Client) FileBlob(ctx context.Context, path, ref string, maxSize int64) ([]byte, error) {
+	clean, err := cleanRepoPath(path)
+	if err != nil {
+		return nil, err
+	}
+	var meta struct {
+		Type string `json:"type"`
+		SHA  string `json:"sha"`
+		Size int64  `json:"size"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/repos/"+c.repo+"/contents/"+escapePath(clean)+"?ref="+url.QueryEscape(ref), nil, &meta); err != nil {
+		return nil, err
+	}
+	if meta.Type != "file" || meta.SHA == "" {
+		return nil, errors.New("github path is not a file")
+	}
+	if maxSize > 0 && meta.Size > maxSize {
+		return nil, errors.New("github file is too large")
+	}
+	var blob struct {
+		Encoding string `json:"encoding"`
+		Content  string `json:"content"`
+		Size     int64  `json:"size"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/repos/"+c.repo+"/git/blobs/"+url.PathEscape(meta.SHA), nil, &blob); err != nil {
+		return nil, err
+	}
+	if blob.Encoding != "base64" {
+		return nil, errors.New("github blob is not base64")
+	}
+	if maxSize > 0 && blob.Size > maxSize {
+		return nil, errors.New("github blob is too large")
+	}
+	data, err := base64.StdEncoding.DecodeString(blob.Content)
+	if err != nil {
+		return nil, err
+	}
+	if maxSize > 0 && int64(len(data)) > maxSize {
+		return nil, errors.New("github blob is too large")
+	}
+	return data, nil
+}
+
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
 	token, err := c.authToken(ctx)
 	if err != nil {
@@ -280,7 +323,7 @@ func (c *Client) doWithToken(ctx context.Context, token, method, path string, bo
 		return &APIError{Status: resp.StatusCode, Body: strings.TrimSpace(string(data))}
 	}
 	if out != nil {
-		return json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(out)
+		return json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(out)
 	}
 	return nil
 }

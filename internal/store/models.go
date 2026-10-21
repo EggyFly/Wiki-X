@@ -22,9 +22,15 @@ type PageRecord struct {
 	Tags                   []string
 	Draft                  bool
 	Protected              bool
+	ProtectionLevel        string
 	Version                string
 	TranslationKey         string
 	TranslationBaseVersion string
+	EntityID               *int64
+	EntityKey              string
+	DeletedAt              *time.Time
+	DeletedBy              *int64
+	DeleteReason           string
 	UpdatedAt              time.Time
 	CurrentRevisionID      *int64
 }
@@ -45,6 +51,7 @@ type Revision struct {
 	Version                string
 	TranslationKey         string
 	TranslationBaseVersion string
+	EntityID               *int64
 	CreatedAt              time.Time
 	PublishedAt            *time.Time
 }
@@ -60,6 +67,7 @@ type RevisionInput struct {
 	BaseVersion            string
 	TranslationKey         string
 	TranslationBaseVersion string
+	EntityID               *int64
 	Publish                bool
 	AllowProtected         bool
 }
@@ -68,6 +76,7 @@ type User struct {
 	ID              int64
 	Name            string
 	Email           string
+	EmailVerified   bool
 	PasswordHash    string
 	Disabled        bool
 	TOTPSecret      string

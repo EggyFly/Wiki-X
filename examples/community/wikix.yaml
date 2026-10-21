@@ -41,6 +41,7 @@ database:
 auth:
   secure_cookies: false
   session_ttl: 336h
+  trusted_proxies: []
   github:
     client_id: ""
     client_secret: ""
@@ -66,3 +67,18 @@ comment:
   rate_limit: 5
   rate_window: 1m
   blocked_words: []
+mail:
+  host: ""               # 填写后启用邮箱验证和密码找回, site.base_url 必填
+  port: 587
+  username: ""
+  password: ""           # 建议通过 WIKIX_MAIL_PASSWORD 提供
+  from: ""
+  implicit_tls: false    # 465 端口直连 TLS 时设为 true
+registration:
+  mode: off              # off, invite, open; open 必须配置邮件
+  default_group: user    # 新账号默认用户组
+search:
+  backend: auto          # auto, memory, postgres, meilisearch
+  url: ""                # meilisearch 地址, 例如 http://127.0.0.1:7700
+  api_key: ""            # 建议通过 WIKIX_SEARCH_API_KEY 提供
+  index: wikix           # meilisearch 索引名

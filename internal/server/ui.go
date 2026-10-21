@@ -10,8 +10,8 @@ import (
 	"io/fs"
 	"sort"
 
-	"wikix/internal/site"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/site"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 //go:embed ui/*.html ui/assets/*
@@ -24,24 +24,95 @@ type appUI struct {
 }
 
 type baseData struct {
-	Site          site.SiteInfo
-	User          *store.User
-	CSRF          string
-	Title         string
-	Lang          string
-	Path          string
-	LoginEnabled  bool
-	GitHubEnabled bool
-	Notice        string
-	Error         string
-	UIVersion     string
-	T             map[string]string
+	Site             site.SiteInfo
+	User             *store.User
+	CSRF             string
+	Title            string
+	Lang             string
+	Path             string
+	LoginEnabled     bool
+	GitHubEnabled    bool
+	Notice           string
+	Error            string
+	UIVersion        string
+	RegistrationMode string
+	T                map[string]string
 }
 
 type loginData struct {
 	baseData
-	Next     string
-	HasUsers bool
+	Next             string
+	HasUsers         bool
+	MailEnabled      bool
+	RegistrationMode string
+}
+
+type registerData struct {
+	baseData
+	Mode        string
+	MailEnabled bool
+	Sent        bool
+}
+
+type registerVerifyData struct {
+	baseData
+	Sent bool
+}
+
+type adminPagesData struct {
+	baseData
+	Pages  []*store.AdminPageRow
+	Status string
+	Query  string
+	Pager  pagerData
+}
+
+type adminInvitesData struct {
+	baseData
+	Invites []*store.InviteCode
+	Mode    string
+	NewCode string
+}
+
+type entityFieldValue struct {
+	Field   *store.EntityField
+	Value   string
+	Checked bool
+}
+
+type adminEntitiesData struct {
+	baseData
+	Types       []*store.EntityType
+	Entities    []*store.EntityRecord
+	Edit        *store.EntityRecord
+	EditType    *store.EntityType
+	FieldValues []entityFieldValue
+}
+
+type publicEntitiesData struct {
+	baseData
+	Types     []*store.EntityType
+	TypeName  string
+	TypeLabel string
+	Fields    []*store.EntityField
+	Items     []*store.EntityRecord
+	Sort      string
+	Order     string
+}
+
+type forgotData struct {
+	baseData
+	Sent bool
+}
+
+type resetData struct {
+	baseData
+	Token string
+}
+
+type verifyEmailData struct {
+	baseData
+	Token string
 }
 
 type verifyData struct {
@@ -50,21 +121,23 @@ type verifyData struct {
 
 type editData struct {
 	baseData
-	Route          string
-	PageTitle      string
-	Description    string
-	Tags           string
-	Body           string
-	Comment        string
-	BaseVersion    string
-	TranslationKey string
-	HistoryURL     string
-	IsNew          bool
-	PRMode         bool
-	CanUpload      bool
-	CanReview      bool
-	Protected      bool
-	CanProtect     bool
+	Route           string
+	PageTitle       string
+	Description     string
+	Tags            string
+	Body            string
+	Comment         string
+	BaseVersion     string
+	TranslationKey  string
+	EntityKey       string
+	HistoryURL      string
+	IsNew           bool
+	PRMode          bool
+	CanUpload       bool
+	CanReview       bool
+	Protected       bool
+	ProtectionLevel string
+	CanProtect      bool
 }
 
 type prData struct {
@@ -76,12 +149,16 @@ type prData struct {
 
 type accountData struct {
 	baseData
-	Identities  []*store.Identity
-	HasGitHub   bool
-	HasPassword bool
-	TOTPEnabled bool
-	TOTPSecret  string
-	OTPAuthURL  string
+	Identities       []*store.Identity
+	HasGitHub        bool
+	HasPassword      bool
+	EmailVerified    bool
+	MailEnabled      bool
+	TOTPEnabled      bool
+	TOTPSecret       string
+	OTPAuthURL       string
+	RecoveryCodes    int
+	NewRecoveryCodes []string
 }
 
 type pagerData struct {
@@ -158,11 +235,13 @@ type adminReportsData struct {
 
 type adminAuditData struct {
 	baseData
-	Logs  []*store.AuditLog
-	Query string
-	From  string
-	To    string
-	Pager pagerData
+	Logs       []*store.AuditLog
+	Query      string
+	From       string
+	To         string
+	Size       int
+	Cursor     string
+	NextCursor string
 }
 
 type translationLocaleCell struct {
@@ -247,7 +326,7 @@ func loadUI() (*appUI, error) {
 	if err != nil {
 		return nil, err
 	}
-	names := []string{"login", "verify", "edit", "history", "revision", "review", "search", "message", "pr", "account", "watchlist", "discussion", "admin_users", "admin_reports", "admin_audit", "admin_groups", "translations"}
+	names := []string{"login", "verify", "forgot", "reset", "verify_email", "register", "register_verify", "edit", "history", "revision", "review", "search", "message", "pr", "account", "watchlist", "discussion", "admin_users", "admin_reports", "admin_audit", "admin_groups", "admin_invites", "admin_entities", "admin_pages", "entities", "translations"}
 	pages := make(map[string]*template.Template, len(names))
 	for _, name := range names {
 		set, err := template.New("layout.html").ParseFS(uiFS, "ui/layout.html", "ui/"+name+".html")

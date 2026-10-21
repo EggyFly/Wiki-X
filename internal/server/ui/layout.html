@@ -23,11 +23,12 @@
       <nav class="site-nav" aria-label="{{.T.home}}">
         <a href="/">{{.T.home}}</a>
         <a href="/search">{{.T.search}}</a>
+        {{if .Site.Entities}}<a href="/entities">{{.T.entities}}</a>{{end}}
         {{if .User}}
           {{if .User.HasRight "edit"}}<a href="/edit">{{.T.new_page}}</a>{{end}}
           {{if and .User (.User.HasRight "edit")}}{{if .Site.Translations}}<a href="/translations">{{.T.translations}}</a>{{end}}{{end}}
-          {{if .User.HasRight "review"}}<a href="/review">{{.T.review}}</a><a href="/admin/reports">{{.T.report_admin}}</a>{{end}}
-          {{if .User.HasRight "manage_users"}}<a href="/admin/users">{{.T.user_admin}}</a>{{end}}
+          {{if .User.HasRight "review"}}<a href="/review">{{.T.review}}</a><a href="/admin/reports">{{.T.report_admin}}</a><a href="/admin/pages">{{.T.page_admin}}</a>{{end}}
+          {{if .User.HasRight "manage_users"}}<a href="/admin/users">{{.T.user_admin}}</a><a href="/admin/entities">{{.T.entity_admin}}</a>{{if eq .RegistrationMode "invite"}}<a href="/admin/invites">{{.T.invite_admin}}</a>{{end}}{{end}}
           <a href="/watchlist">{{.T.watchlist}}</a>
           <a class="user-chip" href="/account">{{.User.Name}}</a>
           <form method="post" action="/logout" class="inline-form">

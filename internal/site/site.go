@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -21,14 +22,15 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"wikix/internal/cache"
-	"wikix/internal/config"
-	"wikix/internal/content"
-	gitsource "wikix/internal/content/gitsource"
-	"wikix/internal/i18n"
-	"wikix/internal/render"
-	"wikix/internal/theme"
-	"wikix/themes"
+	"github.com/EggyFly/Wiki-X/internal/cache"
+	"github.com/EggyFly/Wiki-X/internal/components"
+	"github.com/EggyFly/Wiki-X/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/content"
+	gitsource "github.com/EggyFly/Wiki-X/internal/content/gitsource"
+	"github.com/EggyFly/Wiki-X/internal/i18n"
+	"github.com/EggyFly/Wiki-X/internal/render"
+	"github.com/EggyFly/Wiki-X/internal/theme"
+	"github.com/EggyFly/Wiki-X/themes"
 )
 
 var ErrNotFound = errors.New("page not found")
@@ -48,6 +50,7 @@ type SiteInfo struct {
 	Community    bool
 	History      bool
 	Translations bool
+	Entities     bool
 	Nav          []config.NavItem
 	Year         int
 	Skins        []SkinInfo
@@ -56,11 +59,12 @@ type SiteInfo struct {
 }
 
 type PageInfo struct {
-	Title       string
-	Description string
-	Updated     string
-	Tags        []string
-	Protected   bool
+	Title           string
+	Description     string
+	Updated         string
+	Tags            []string
+	Protected       bool
+	ProtectionLevel string
 }
 
 type LocaleLink struct {
@@ -94,6 +98,8 @@ type state struct {
 	media        fs.FS
 	locales      []config.LocaleConfig
 	translations map[string]map[string]string
+	entities     map[string]*components.Entity
+	entityHash   string
 }
 
 type Site struct {
@@ -107,6 +113,19 @@ type Site struct {
 	state        atomic.Pointer[state]
 	reloadMu     sync.Mutex
 	lastCacheLog atomic.Int64
+	cacheHits    atomic.Uint64
+	cacheMisses  atomic.Uint64
+	renders      atomic.Uint64
+	renderNanos  atomic.Uint64
+	renderFailed atomic.Uint64
+}
+
+type Stats struct {
+	CacheHits    uint64
+	CacheMisses  uint64
+	Renders      uint64
+	RenderNanos  uint64
+	RenderFailed uint64
 }
 
 func Load(ctx context.Context, cfg *config.Config) (*Site, error) {
@@ -145,8 +164,15 @@ func LoadWithSource(ctx context.Context, cfg *config.Config, source content.Sour
 		cache:      pageCache,
 		cacheTTL:   ttl,
 		configHash: configHash(cfg),
-		markdown:   render.NewMarkdown(),
 	}
+	s.markdown = render.NewMarkdownWithEntities(func(key string) (*components.Entity, bool) {
+		st := s.state.Load()
+		if st == nil {
+			return nil, false
+		}
+		entity, ok := st.entities[key]
+		return entity, ok
+	})
 	st, err := s.loadState(ctx)
 	if err != nil {
 		_ = pageCache.Close()
@@ -174,6 +200,7 @@ func (s *Site) loadState(ctx context.Context) (*state, error) {
 		Community:    !s.cfg.Site.Static && (s.cfg.Content.Source == "postgres" || s.cfg.Site.CommunityUI),
 		History:      s.cfg.Content.Source == "postgres",
 		Translations: s.cfg.Content.Source == "postgres",
+		Entities:     s.cfg.Content.Source == "postgres",
 		Nav:          append([]config.NavItem(nil), s.cfg.Site.Nav...),
 		Year:         time.Now().Year(),
 		Skins:        skins,
@@ -217,6 +244,11 @@ func (s *Site) loadState(ctx context.Context) (*state, error) {
 		translations[page.TranslationKey][locale.Code] = page.Route
 	}
 
+	entities, entityHash, err := s.loadEntities(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	notFound := make(map[string][]byte, len(skins))
 	for _, skin := range skins {
 		themePack := themesMap[skin.Name]
@@ -241,7 +273,34 @@ func (s *Site) loadState(ctx context.Context) (*state, error) {
 		media:        mediaFS,
 		locales:      locales,
 		translations: translations,
+		entities:     entities,
+		entityHash:   entityHash,
 	}, nil
+}
+
+func (s *Site) loadEntities(ctx context.Context) (map[string]*components.Entity, string, error) {
+	source, ok := s.source.(content.EntitySource)
+	if !ok {
+		return map[string]*components.Entity{}, "", nil
+	}
+	items, err := source.LoadEntities(ctx)
+	if err != nil {
+		return nil, "", fmt.Errorf("load entities: %w", err)
+	}
+	result := make(map[string]*components.Entity, len(items))
+	for _, item := range items {
+		entity := &components.Entity{Key: item.Key, Label: item.Label, Type: item.Type}
+		for _, field := range item.Fields {
+			entity.Fields = append(entity.Fields, components.EntityField{Name: field.Name, Label: field.Label, Value: field.Value})
+		}
+		result[item.Key] = entity
+	}
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		return nil, "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return result, hex.EncodeToString(sum[:]), nil
 }
 
 func (s *Site) renderNotFound(themePack *theme.Theme, siteInfo SiteInfo) ([]byte, error) {
@@ -290,20 +349,27 @@ func (s *Site) RenderSkin(ctx context.Context, route, skin string) ([]byte, erro
 	if data, ok, err := s.cache.Get(ctx, key); err != nil {
 		s.logCacheError(err)
 	} else if ok {
+		s.cacheHits.Add(1)
 		return data, nil
 	}
+	s.cacheMisses.Add(1)
 
 	value, err, _ := s.group.Do(key, func() (any, error) {
 		cacheCtx := context.WithoutCancel(ctx)
 		if data, ok, err := s.cache.Get(cacheCtx, key); err != nil {
 			s.logCacheError(err)
 		} else if ok {
+			s.cacheHits.Add(1)
 			return data, nil
 		}
+		started := time.Now()
 		html, err := s.renderPage(st, page, themePack, info, route, locale, baseRoute, fallback)
 		if err != nil {
+			s.renderFailed.Add(1)
 			return nil, err
 		}
+		s.renders.Add(1)
+		s.renderNanos.Add(uint64(time.Since(started)))
 		if err := s.cache.Set(cacheCtx, key, html, s.cacheTTL); err != nil {
 			s.logCacheError(err)
 		}
@@ -334,11 +400,12 @@ func (s *Site) renderPage(st *state, page *content.Page, themePack *theme.Theme,
 	view := PageView{
 		Site: info,
 		Page: PageInfo{
-			Title:       page.Title,
-			Description: page.Description,
-			Updated:     page.Updated,
-			Tags:        page.Tags,
-			Protected:   page.Protected,
+			Title:           page.Title,
+			Description:     page.Description,
+			Updated:         page.Updated,
+			Tags:            page.Tags,
+			Protected:       page.Protected,
+			ProtectionLevel: protectionLevel(page),
 		},
 		Content:      body,
 		Path:         requestRoute,
@@ -361,11 +428,17 @@ func (s *Site) cacheKey(st *state, page *content.Page, requestRoute, skin, theme
 		sum := sha256.Sum256([]byte(page.Body))
 		version = hex.EncodeToString(sum[:])
 	}
-	protectFlag := "n"
-	if page.Protected {
-		protectFlag = "p"
+	return "page:" + renderVersion + ":" + s.configHash + ":" + skin + ":" + themeVersion + ":" + st.entityHash + ":" + requestRoute + ":" + version + ":" + protectionLevel(page)
+}
+
+func protectionLevel(page *content.Page) string {
+	if page.ProtectionLevel != "" {
+		return page.ProtectionLevel
 	}
-	return "page:" + renderVersion + ":" + s.configHash + ":" + skin + ":" + themeVersion + ":" + requestRoute + ":" + version + ":" + protectFlag
+	if page.Protected {
+		return "semi"
+	}
+	return "none"
 }
 
 func (s *Site) Reload(ctx context.Context) error {
@@ -561,6 +634,10 @@ func (s *Site) Search(query string, limit int) []SearchResult {
 	return results
 }
 
+func CleanSnippet(line string) string {
+	return cleanSnippet(line)
+}
+
 func cleanSnippet(line string) string {
 	line = strings.TrimSpace(line)
 	line = strings.TrimLeft(line, "#>*-_` ")
@@ -579,12 +656,90 @@ func (s *Site) AccessLog() bool {
 	return s.cfg.Server.AccessLog
 }
 
+func (s *Site) Markdown() *render.Markdown {
+	return s.markdown
+}
+
+func (s *Site) Stats() Stats {
+	return Stats{
+		CacheHits:    s.cacheHits.Load(),
+		CacheMisses:  s.cacheMisses.Load(),
+		Renders:      s.renders.Load(),
+		RenderNanos:  s.renderNanos.Load(),
+		RenderFailed: s.renderFailed.Load(),
+	}
+}
+
 func (s *Site) CacheDriver() string {
 	return s.cache.Driver()
 }
 
 func (s *Site) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
 	return s.cache.Allow(ctx, key, limit, window)
+}
+
+func (s *Site) InvalidateRoute(ctx context.Context, route string) (int, error) {
+	if route == "" {
+		return 0, nil
+	}
+	return s.cache.DeleteMatching(ctx, ":"+route+":")
+}
+
+func (s *Site) Warm(ctx context.Context, skin string, concurrency int) (int, error) {
+	if skin != "" && !s.HasSkin(skin) {
+		return 0, fmt.Errorf("unknown skin %q", skin)
+	}
+	routes := s.Routes()
+	if len(routes) == 0 {
+		return 0, nil
+	}
+	if concurrency <= 0 {
+		concurrency = 4
+	}
+	if concurrency > len(routes) {
+		concurrency = len(routes)
+	}
+	jobs := make(chan string)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+	count := 0
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for route := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				if _, err := s.RenderSkin(ctx, route, skin); err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+					continue
+				}
+				mu.Lock()
+				count++
+				mu.Unlock()
+			}
+		}()
+	}
+sendRoutes:
+	for _, route := range routes {
+		select {
+		case <-ctx.Done():
+			break sendRoutes
+		case jobs <- route:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	if err := ctx.Err(); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	return count, firstErr
 }
 
 func (s *Site) Close() error {

@@ -12,22 +12,28 @@ import (
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/util"
 
-	"wikix/internal/components"
+	"github.com/EggyFly/Wiki-X/internal/components"
 )
 
 const componentPrefix = "wx-"
 
 type Markdown struct {
-	md goldmark.Markdown
+	md       goldmark.Markdown
+	entities components.EntityLookup
 }
 
 func NewMarkdown() *Markdown {
+	return NewMarkdownWithEntities(nil)
+}
+
+func NewMarkdownWithEntities(lookup components.EntityLookup) *Markdown {
 	return &Markdown{
 		md: goldmark.New(
 			goldmark.WithExtensions(extension.GFM, extension.Footnote),
 			goldmark.WithParserOptions(parser.WithAutoHeadingID()),
-			goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(&fencedRenderer{}, 100))),
+			goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(&fencedRenderer{entities: lookup}, 100))),
 		),
+		entities: lookup,
 	}
 }
 
@@ -39,7 +45,9 @@ func (m *Markdown) ToHTML(source []byte) (template.HTML, error) {
 	return template.HTML(buf.String()), nil
 }
 
-type fencedRenderer struct{}
+type fencedRenderer struct {
+	entities components.EntityLookup
+}
 
 func (r *fencedRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindFencedCodeBlock, r.renderFenced)
@@ -56,7 +64,7 @@ func (r *fencedRenderer) renderFenced(writer util.BufWriter, source []byte, node
 	language := string(block.Language(source))
 	if strings.HasPrefix(language, componentPrefix) {
 		name := strings.ToLower(strings.TrimPrefix(language, componentPrefix))
-		html, err := components.Render(name, blockText(block, source))
+		html, err := components.RenderWithEntities(name, blockText(block, source), r.entities)
 		if err != nil {
 			_, _ = writer.Write([]byte(components.ErrorBox(err)))
 			return ast.WalkContinue, nil

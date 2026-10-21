@@ -11,15 +11,18 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	"wikix/internal/content"
-	gitsource "wikix/internal/content/gitsource"
-	"wikix/internal/site"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/content"
+	gitsource "github.com/EggyFly/Wiki-X/internal/content/gitsource"
+	"github.com/EggyFly/Wiki-X/internal/site"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 type githubRepository struct {
@@ -155,18 +158,89 @@ func (a *App) importPullRequest(ctx context.Context, payload githubPullRequestPa
 
 	prefix := strings.Trim(a.cfg.GitHub.ContentPath, "/")
 	publish := a.cfg.GitHub.PRImport == "publish"
-	imported := 0
-	published := 0
+	comment := truncateRunes(fmt.Sprintf("GitHub PR #%d: %s (%s)", payload.Number, payload.PullRequest.Title, payload.PullRequest.User.Login), 500)
+
+	mediaMap := make(map[string]string)
+	mediaCount, mediaBytes := 0, int64(0)
 	for _, file := range files {
-		if file.Status == "removed" || !strings.EqualFold(fileExt(file.Filename), ".md") {
+		if file.Status == "removed" || !mediaFileExt(fileExt(file.Filename)) {
 			continue
 		}
-		relPath := file.Filename
-		if prefix != "" {
-			if !strings.HasPrefix(relPath, prefix+"/") {
+		relPath, ok := contentRelPath(file.Filename, prefix)
+		if !ok {
+			continue
+		}
+		if mediaCount >= 100 || mediaBytes >= 64<<20 {
+			slog.Warn("github import media limit reached", "number", payload.Number)
+			break
+		}
+		data, err := a.github.FileBlob(ctx, file.Filename, payload.PullRequest.MergeCommitSHA, a.cfg.Media.MaxSize)
+		if err != nil {
+			slog.Warn("fetch github media failed", "file", file.Filename, "err", err)
+			continue
+		}
+		contentType, ext := detectMedia(data)
+		if ext == "" {
+			slog.Warn("github media type rejected", "file", file.Filename)
+			continue
+		}
+		sum := sha256.Sum256(data)
+		name := "pr-" + hex.EncodeToString(sum[:])[:16] + ext
+		if err := a.saveImportedMedia(name, data); err != nil {
+			slog.Warn("save github media failed", "file", file.Filename, "err", err)
+			continue
+		}
+		if _, err := a.store.EnsureMedia(ctx, name, contentType, int64(len(data)), authorID); err != nil {
+			slog.Warn("record github media failed", "file", file.Filename, "err", err)
+			continue
+		}
+		mediaMap[relPath] = "/media/" + name
+		mediaCount++
+		mediaBytes += int64(len(data))
+	}
+	mediaMap = uniqueMediaBasenames(mediaMap)
+
+	imported := 0
+	published := 0
+	removed := 0
+	searchRoutes := make([]string, 0)
+	for _, file := range files {
+		if !strings.EqualFold(fileExt(file.Filename), ".md") {
+			continue
+		}
+		relPath, ok := contentRelPath(file.Filename, prefix)
+		if !ok {
+			continue
+		}
+		if file.Status == "removed" {
+			route, err := gitsource.RouteForFile(relPath)
+			if err != nil {
+				slog.Warn("github removed file route rejected", "file", file.Filename, "err", err)
 				continue
 			}
-			relPath = strings.TrimPrefix(relPath, prefix+"/")
+			current, err := a.store.GetPage(ctx, route)
+			if errors.Is(err, store.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				slog.Warn("load deleted page for github import failed", "route", route, "err", err)
+				continue
+			}
+			if current.Protected {
+				slog.Warn("github import skipped protected page delete", "route", route)
+				continue
+			}
+			if current.DeletedAt != nil {
+				continue
+			}
+			reason := truncateRunes(comment, 500)
+			if err := a.store.DeletePage(ctx, route, reason, authorID); err != nil {
+				slog.Warn("github import delete failed", "route", route, "err", err)
+				continue
+			}
+			removed++
+			searchRoutes = append(searchRoutes, route)
+			continue
 		}
 		data, err := a.github.FileContent(ctx, file.Filename, payload.PullRequest.MergeCommitSHA)
 		if err != nil {
@@ -182,8 +256,14 @@ func (a *App) importPullRequest(ctx context.Context, payload githubPullRequestPa
 			slog.Warn("github file route rejected", "file", file.Filename, "err", err)
 			continue
 		}
+		page.Body = rewriteMediaPaths(page.Body, mediaMap)
+		page.Version = ""
 		baseVersion := ""
 		if current, err := a.store.GetPage(ctx, page.Route); err == nil {
+			if current.DeletedAt != nil {
+				slog.Warn("github import skipped deleted page", "route", page.Route)
+				continue
+			}
 			if samePageContent(current, page) {
 				continue
 			}
@@ -192,8 +272,6 @@ func (a *App) importPullRequest(ctx context.Context, payload githubPullRequestPa
 			slog.Warn("load page for github import failed", "route", page.Route, "err", err)
 			continue
 		}
-		comment := fmt.Sprintf("GitHub PR #%d: %s (%s)", payload.Number, payload.PullRequest.Title, payload.PullRequest.User.Login)
-		comment = truncateRunes(comment, 500)
 		_, err = a.store.CreateRevision(ctx, store.RevisionInput{
 			Route:          page.Route,
 			Title:          page.Title,
@@ -221,14 +299,100 @@ func (a *App) importPullRequest(ctx context.Context, payload githubPullRequestPa
 		imported++
 		if publish {
 			published++
+			searchRoutes = append(searchRoutes, page.Route)
 		}
 	}
-	if published > 0 {
+	if published > 0 || removed > 0 {
 		a.reloadSite(ctx)
 	}
-	_ = a.store.LogAudit(ctx, 0, "github.pr.import", target, fmt.Sprintf("files=%d imported=%d published=%d", len(files), imported, published))
-	slog.Info("github pull request imported", "number", payload.Number, "files", len(files), "imported", imported, "published", published)
+	for _, route := range searchRoutes {
+		a.syncSearchDocument(ctx, route)
+	}
+	_ = a.store.LogAudit(ctx, 0, "github.pr.import", target,
+		fmt.Sprintf("files=%d media=%d imported=%d published=%d removed=%d", len(files), mediaCount, imported, published, removed))
+	slog.Info("github pull request imported", "number", payload.Number, "files", len(files),
+		"media", mediaCount, "imported", imported, "published", published, "removed", removed)
 	return nil
+}
+
+func contentRelPath(filename, prefix string) (string, bool) {
+	relPath := filename
+	if prefix != "" {
+		if !strings.HasPrefix(relPath, prefix+"/") {
+			return "", false
+		}
+		relPath = strings.TrimPrefix(relPath, prefix+"/")
+	}
+	if relPath == "" || strings.Contains(relPath, "..") {
+		return "", false
+	}
+	return relPath, true
+}
+
+func mediaFileExt(ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *App) saveImportedMedia(name string, data []byte) error {
+	if err := os.MkdirAll(a.cfg.Media.Dir, 0o755); err != nil {
+		return err
+	}
+	target := filepath.Join(a.cfg.Media.Dir, name)
+	if _, err := os.Stat(target); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := out.Write(data); err != nil {
+		out.Close()
+		_ = os.Remove(target)
+		return err
+	}
+	return out.Close()
+}
+
+func uniqueMediaBasenames(media map[string]string) map[string]string {
+	count := make(map[string]int, len(media))
+	for relPath := range media {
+		count[filepath.Base(relPath)]++
+	}
+	result := make(map[string]string, len(media)*3)
+	for relPath, url := range media {
+		result[relPath] = url
+		base := filepath.Base(relPath)
+		if count[base] == 1 {
+			result[base] = url
+			result["./"+base] = url
+		}
+		result["/"+relPath] = url
+	}
+	return result
+}
+
+func rewriteMediaPaths(body string, media map[string]string) string {
+	keys := make([]string, 0, len(media))
+	for from := range media {
+		keys = append(keys, from)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if len(keys[i]) != len(keys[j]) {
+			return len(keys[i]) > len(keys[j])
+		}
+		return keys[i] < keys[j]
+	})
+	for _, from := range keys {
+		body = strings.ReplaceAll(body, from, media[from])
+	}
+	return body
 }
 
 func samePageContent(current *store.PageRecord, incoming *content.Page) bool {

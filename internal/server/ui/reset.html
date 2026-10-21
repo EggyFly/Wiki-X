@@ -1,0 +1,20 @@
+{{define "main"}}
+<section class="panel auth-panel">
+  <h1>{{.T.reset_title}}</h1>
+  <p class="muted">{{.T.reset_hint}}</p>
+  <form method="post" action="/reset" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <input type="hidden" name="token" value="{{.Token}}">
+    <label class="field">
+      <span>{{.T.new_password}}</span>
+      <input type="password" name="new_password" minlength="8" maxlength="128" autocomplete="new-password" required>
+    </label>
+    <label class="field">
+      <span>{{.T.confirm_password}}</span>
+      <input type="password" name="confirm_password" minlength="8" maxlength="128" autocomplete="new-password" required>
+    </label>
+    <button class="btn btn-primary" type="submit">{{.T.reset_button}}</button>
+  </form>
+  <p class="muted"><a href="/login">{{.T.login}}</a></p>
+</section>
+{{end}}

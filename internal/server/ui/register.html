@@ -1,0 +1,39 @@
+{{define "main"}}
+<section class="panel auth-panel">
+  <h1>{{.T.register_title}}</h1>
+  {{if .Sent}}
+  <p class="muted">{{.T.register_sent_hint}}</p>
+  <p class="muted"><a href="/register/verify">{{.T.register_verify_link}}</a></p>
+  <p class="muted"><a href="/login">{{.T.login}}</a></p>
+  {{else}}
+  <p class="muted">{{if eq .Mode "invite"}}{{.T.register_invite_hint}}{{else}}{{.T.register_open_hint}}{{end}}</p>
+  <form method="post" action="/register" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label class="field">
+      <span>{{.T.username}}</span>
+      <input name="username" autocomplete="username" required maxlength="64">
+    </label>
+    <label class="field">
+      <span>{{.T.account_email}}</span>
+      <input type="email" name="email" autocomplete="email" required maxlength="320">
+    </label>
+    <label class="field">
+      <span>{{.T.password}}</span>
+      <input type="password" name="password" autocomplete="new-password" minlength="8" maxlength="128" required>
+    </label>
+    <label class="field">
+      <span>{{.T.confirm_password}}</span>
+      <input type="password" name="confirm_password" autocomplete="new-password" minlength="8" maxlength="128" required>
+    </label>
+    {{if eq .Mode "invite"}}
+    <label class="field">
+      <span>{{.T.register_invite_code}}</span>
+      <input name="invite_code" autocomplete="off" required maxlength="64">
+    </label>
+    {{end}}
+    <button class="btn btn-primary" type="submit">{{.T.register_button}}</button>
+  </form>
+  <p class="muted"><a href="/login">{{.T.login}}</a></p>
+  {{end}}
+</section>
+{{end}}

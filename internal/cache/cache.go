@@ -12,6 +12,7 @@ type Cache interface {
 	Get(ctx context.Context, key string) ([]byte, bool, error)
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	Delete(ctx context.Context, keys ...string) error
+	DeleteMatching(ctx context.Context, contains string) (int, error)
 	Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error)
 	Close() error
 	Driver() string

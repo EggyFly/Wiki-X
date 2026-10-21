@@ -19,8 +19,8 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
-	"wikix/internal/config"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 const (
@@ -224,6 +224,19 @@ func VerifyLogin(user *store.User, password string) bool {
 }
 
 func NewSessionToken() (string, string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", err
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	return token, hashToken(token), nil
+}
+
+func HashEmailToken(token string) string {
+	return hashToken(token)
+}
+
+func NewEmailToken() (string, string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", "", err
@@ -458,6 +471,7 @@ func (m *Manager) CleanupSessions(ctx context.Context, interval time.Duration) {
 			return
 		case <-ticker.C:
 			_ = m.store.DeleteExpiredSessions(ctx)
+			_ = m.store.DeleteExpiredEmailTokens(ctx)
 		}
 	}
 }

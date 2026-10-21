@@ -18,7 +18,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"wikix/internal/content"
+	"github.com/EggyFly/Wiki-X/internal/content"
 )
 
 const DefaultMaxFileSize int64 = 1 << 20
@@ -294,6 +294,10 @@ func checkYAMLNode(node *yaml.Node, depth int, count *int) error {
 		}
 	}
 	return nil
+}
+
+func RouteForFile(relPath string) (string, error) {
+	return routeFromFile(relPath)
 }
 
 func routeFromFile(relPath string) (string, error) {

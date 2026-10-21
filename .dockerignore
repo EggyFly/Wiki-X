@@ -1,0 +1,9 @@
+.git
+.github
+dist
+*.log
+*.exe
+.zcode
+.codex
+.idea
+.vscode

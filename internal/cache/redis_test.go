@@ -47,6 +47,23 @@ func TestRedisCache(t *testing.T) {
 		t.Fatal("key should be deleted")
 	}
 
+	if err := c.Set(ctx, ":/guide/:one", []byte("1"), time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Set(ctx, ":/guide/:two", []byte("2"), time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Set(ctx, ":/other/:one", []byte("3"), time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := c.DeleteMatching(ctx, ":/guide/:")
+	if err != nil || deleted != 2 {
+		t.Fatalf("delete matching = %d, %v", deleted, err)
+	}
+	if _, ok, _ := c.Get(ctx, ":/other/:one"); !ok {
+		t.Fatal("unrelated key should remain")
+	}
+
 	limitKey := fmt.Sprintf("comment-%d", time.Now().UnixNano())
 	for i := 0; i < 3; i++ {
 		allowed, err := c.Allow(ctx, limitKey, 3, time.Minute)

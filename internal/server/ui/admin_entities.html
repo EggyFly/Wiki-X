@@ -1,0 +1,161 @@
+{{define "main"}}
+<section class="panel">
+  <h1>{{.T.entity_admin}}</h1>
+  <p class="muted">{{.T.entity_admin_hint}}</p>
+</section>
+
+<section class="panel">
+  <h2>{{.T.entity_types}}</h2>
+  <form method="post" action="/admin/entities/types" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label class="field">
+      <span>{{.T.entity_type_name}}</span>
+      <input name="name" maxlength="100" required placeholder="character">
+    </label>
+    <label class="field">
+      <span>{{.T.entity_type_label}}</span>
+      <input name="label" maxlength="100" placeholder="{{.T.entity_type_label_hint}}">
+    </label>
+    <div class="toolbar">
+      <button class="btn btn-primary" type="submit">{{.T.entity_type_create}}</button>
+    </div>
+  </form>
+
+  {{range .Types}}
+  <div class="entity-type">
+    <div class="toolbar">
+      <h3>{{.Label}} <code>{{.Name}}</code></h3>
+      <form method="post" action="/admin/entities/types/delete" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <button class="btn btn-danger btn-small" type="submit">{{$.T.entity_type_delete}}</button>
+      </form>
+    </div>
+    {{if .Fields}}
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>{{$.T.entity_field_name}}</th><th>{{$.T.entity_field_label}}</th><th>{{$.T.entity_field_kind}}</th><th>{{$.T.entity_field_required}}</th><th></th></tr></thead>
+        <tbody>
+          {{range .Fields}}
+          <tr>
+            <td><code>{{.Name}}</code></td>
+            <td>{{.Label}}</td>
+            <td>{{.Kind}}</td>
+            <td>{{if .Required}}{{$.T.yes}}{{else}}{{$.T.no}}{{end}}</td>
+            <td>
+              <form method="post" action="/admin/entities/fields/delete" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <button class="btn btn-danger btn-small" type="submit">{{$.T.entity_field_delete}}</button>
+              </form>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{end}}
+    <form method="post" action="/admin/entities/fields" class="form-grid">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <input type="hidden" name="type_id" value="{{.ID}}">
+      <label class="field"><span>{{$.T.entity_field_name}}</span><input name="name" maxlength="100" required placeholder="rarity"></label>
+      <label class="field"><span>{{$.T.entity_field_label}}</span><input name="label" maxlength="100" placeholder="{{$.T.entity_field_label_hint}}"></label>
+      <label class="field">
+        <span>{{$.T.entity_field_kind}}</span>
+        <select name="kind">
+          <option value="text">text</option>
+          <option value="number">number</option>
+          <option value="bool">bool</option>
+          <option value="date">date</option>
+          <option value="url">url</option>
+          <option value="image">image</option>
+          <option value="select">select</option>
+        </select>
+      </label>
+      <label class="field"><span>{{$.T.entity_field_options}}</span><input name="options" maxlength="500" placeholder="{{$.T.entity_field_options_hint}}"></label>
+      <label class="field checkbox-field"><input type="checkbox" name="required" value="1"><span>{{$.T.entity_field_required}}</span></label>
+      <div class="toolbar"><button class="btn" type="submit">{{$.T.entity_field_create}}</button></div>
+    </form>
+  </div>
+  {{end}}
+</section>
+
+<section class="panel">
+  <h2>{{.T.entity_list}}</h2>
+  {{if .Entities}}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>{{.T.entity_type}}</th><th>{{.T.entity_key}}</th><th>{{.T.entity_label}}</th><th>{{.T.entity_route}}</th><th>{{.T.updated}}</th><th></th></tr></thead>
+      <tbody>
+        {{range .Entities}}
+        <tr>
+          <td>{{.TypeLabel}}</td>
+          <td><code>{{.Name}}</code></td>
+          <td>{{.Label}}</td>
+          <td>{{if .Route}}<a href="{{.Route}}">{{.Route}}</a>{{else}}-{{end}}</td>
+          <td>{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
+          <td>
+            <div class="toolbar">
+              <a class="btn btn-small" href="/admin/entities?edit={{.ID}}">{{$.T.edit}}</a>
+              <form method="post" action="/admin/entities/delete" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <button class="btn btn-danger btn-small" type="submit">{{$.T.entity_delete}}</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="muted">{{.T.entity_none}}</p>
+  {{end}}
+</section>
+
+{{if .EditType}}
+<section class="panel">
+  <h2>{{if .Edit}}{{.T.entity_edit}}{{else}}{{.T.entity_create}}{{end}} · {{.EditType.Label}}</h2>
+  <form method="post" action="/admin/entities/save" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <input type="hidden" name="type_id" value="{{.EditType.ID}}">
+    {{if .Edit}}<input type="hidden" name="id" value="{{.Edit.ID}}">{{end}}
+    <label class="field">
+      <span>{{.T.entity_key}}</span>
+      <input name="name" value="{{if .Edit}}{{.Edit.Name}}{{end}}" maxlength="100" required>
+    </label>
+    <label class="field">
+      <span>{{.T.entity_label}}</span>
+      <input name="label" value="{{if .Edit}}{{.Edit.Label}}{{end}}" maxlength="200">
+    </label>
+    {{range .FieldValues}}
+    <label class="field">
+      <span>{{.Field.Label}}{{if .Field.Required}} *{{end}}</span>
+      {{if eq .Field.Kind "text"}}
+      <textarea name="field_{{.Field.Name}}" rows="2" maxlength="2000">{{.Value}}</textarea>
+      {{else if eq .Field.Kind "number"}}
+      <input type="number" step="any" name="field_{{.Field.Name}}" value="{{.Value}}">
+      {{else if eq .Field.Kind "bool"}}
+      <input type="checkbox" name="field_{{.Field.Name}}" value="true"{{if .Checked}} checked{{end}}>
+      {{else if eq .Field.Kind "date"}}
+      <input type="date" name="field_{{.Field.Name}}" value="{{.Value}}">
+      {{else if eq .Field.Kind "select"}}
+      <select name="field_{{.Field.Name}}">
+        <option value=""></option>
+        {{$value := .Value}}
+        {{range .Field.Options}}<option value="{{.}}"{{if eq . $value}} selected{{end}}>{{.}}</option>{{end}}
+      </select>
+      {{else}}
+      <input type="text" name="field_{{.Field.Name}}" value="{{.Value}}" maxlength="2000">
+      {{end}}
+    </label>
+    {{end}}
+    <div class="toolbar">
+      <button class="btn btn-primary" type="submit">{{.T.save}}</button>
+      <a class="btn" href="/admin/entities">{{.T.cancel}}</a>
+    </div>
+  </form>
+</section>
+{{end}}
+{{end}}

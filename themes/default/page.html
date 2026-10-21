@@ -6,7 +6,7 @@
     {{if or .Page.Updated .Page.Tags .Page.Protected}}
     <div class="page-meta">
       {{if .Page.Updated}}<span class="updated">{{.T.updated}} {{.Page.Updated}}</span>{{end}}
-      {{if .Page.Protected}}<span class="lock-badge">{{.T.page_protected}}</span>{{end}}
+      {{if .Page.Protected}}<span class="lock-badge">{{if eq .Page.ProtectionLevel "full"}}{{.T.protection_full}}{{else}}{{.T.page_protected}}{{end}}</span>{{end}}
       {{range .Page.Tags}}<span class="tag">{{.}}</span>{{end}}
     </div>
     {{end}}

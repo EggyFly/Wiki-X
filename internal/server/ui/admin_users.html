@@ -111,6 +111,15 @@
                 <button class="btn btn-danger" type="submit">{{$.T.reset_password}}</button>
               </form>
             </details>
+            <details class="danger-zone">
+              <summary>{{$.T.admin_user_delete}}</summary>
+              <form method="post" action="/admin/users/delete" class="report-form">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.User.ID}}">
+                <input name="reason" maxlength="300" placeholder="{{$.T.user_delete_reason}}" required>
+                <button class="btn btn-danger" type="submit">{{$.T.delete_user_confirm}}</button>
+              </form>
+            </details>
             {{end}}
           </td>
         </tr>

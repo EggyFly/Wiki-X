@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"wikix/internal/auth"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/auth"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 func (a *App) handleTranslations(w http.ResponseWriter, r *http.Request) {

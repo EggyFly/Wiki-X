@@ -1,0 +1,11 @@
+{{define "main"}}
+<section class="panel auth-panel">
+  <h1>{{.T.verify_email_title}}</h1>
+  <p class="muted">{{.T.verify_email_hint}}</p>
+  <form method="post" action="/verify-email" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <input type="hidden" name="token" value="{{.Token}}">
+    <button class="btn btn-primary" type="submit">{{.T.verify_email_button}}</button>
+  </form>
+</section>
+{{end}}

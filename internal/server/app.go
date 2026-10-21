@@ -10,18 +10,21 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
 
-	"wikix/internal/auth"
-	"wikix/internal/cache"
-	"wikix/internal/config"
-	"wikix/internal/ghclient"
-	"wikix/internal/i18n"
-	"wikix/internal/render"
-	"wikix/internal/site"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/auth"
+	"github.com/EggyFly/Wiki-X/internal/cache"
+	"github.com/EggyFly/Wiki-X/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/ghclient"
+	"github.com/EggyFly/Wiki-X/internal/i18n"
+	"github.com/EggyFly/Wiki-X/internal/mail"
+	"github.com/EggyFly/Wiki-X/internal/render"
+	"github.com/EggyFly/Wiki-X/internal/search"
+	"github.com/EggyFly/Wiki-X/internal/site"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 type App struct {
@@ -36,6 +39,9 @@ type App struct {
 	blockedWords  []string
 	limitFallback *cache.Memory
 	markdown      *render.Markdown
+	mailer        mail.Sender
+	metrics       *metricsRegistry
+	searchClient  *search.Client
 }
 
 func NewApp(cfg *config.Config, s *site.Site, data *store.Store, authManager *auth.Manager, syncContent func(context.Context) error) (*App, error) {
@@ -58,9 +64,26 @@ func NewApp(cfg *config.Config, s *site.Site, data *store.Store, authManager *au
 		syncContent:   syncContent,
 		limitFallback: cache.NewMemory(1, 1, time.Minute),
 		markdown:      render.NewMarkdown(),
+		metrics:       newMetrics(),
+	}
+	if cfg != nil && cfg.Search.Backend == "meilisearch" {
+		app.searchClient = search.NewClient(cfg.Search.URL, cfg.Search.APIKey, cfg.Search.Index)
+	}
+	if s != nil && s.Markdown() != nil {
+		app.markdown = s.Markdown()
 	}
 	if cfg != nil {
 		app.blockedWords = normalizeBlockedWords(cfg.Comment.BlockedWords)
+		if cfg.Mail.Enabled() {
+			app.mailer = mail.NewSMTP(mail.Config{
+				Host:        cfg.Mail.Host,
+				Port:        cfg.Mail.Port,
+				Username:    cfg.Mail.Username,
+				Password:    cfg.Mail.Password,
+				From:        cfg.Mail.From,
+				ImplicitTLS: cfg.Mail.ImplicitTLS,
+			})
+		}
 	}
 	if cfg != nil && cfg.GitHub.Repo != "" && (cfg.GitHub.Token != "" || cfg.GitHub.AppID > 0 || cfg.GitHub.InstallationID > 0) {
 		privateKey := []byte(cfg.GitHub.PrivateKeyPEM)
@@ -103,6 +126,13 @@ func (a *App) Handler() http.Handler {
 		mux.Handle("GET /-/assets/", cacheAssets(http.StripPrefix("/-/assets/", http.FileServerFS(appAssets))))
 	}
 	mux.HandleFunc("GET /-/healthz", healthz)
+	if a.cfg != nil && a.cfg.Metrics.Enabled {
+		if metricsPathFree(mux, a.cfg.Metrics.Path) {
+			mux.HandleFunc("GET "+a.cfg.Metrics.Path, a.handleMetrics)
+		} else {
+			slog.Error("metrics path conflicts with an existing route", "path", a.cfg.Metrics.Path)
+		}
+	}
 	if a.cfg != nil && a.cfg.GitHub.WebhookSecret != "" {
 		mux.HandleFunc("POST /-/webhooks/github", a.handleGitHubWebhook)
 	}
@@ -118,6 +148,26 @@ func (a *App) Handler() http.Handler {
 		mux.HandleFunc("POST /verify", a.handleVerify)
 		mux.HandleFunc("GET /account", a.handleAccount)
 		mux.HandleFunc("POST /account/password", a.handleAccountPassword)
+		mux.HandleFunc("POST /account/delete", a.handleAccountDelete)
+		mux.HandleFunc("GET /account/export", a.handleAccountExport)
+		mux.HandleFunc("GET /account/totp/qr", a.handleTOTPQR)
+		mux.HandleFunc("POST /account/recovery/generate", a.handleRecoveryGenerate)
+		if a.registrationMode() != "off" {
+			mux.HandleFunc("GET /register", a.handleRegisterPage)
+			mux.HandleFunc("POST /register", a.handleRegister)
+			mux.HandleFunc("GET /register/verify", a.handleRegisterVerifyPage)
+			mux.HandleFunc("POST /register/verify", a.handleRegisterVerify)
+		}
+		if a.mailEnabled() {
+			mux.HandleFunc("GET /forgot", a.handleForgotPage)
+			mux.HandleFunc("POST /forgot", a.handleForgot)
+			mux.HandleFunc("GET /reset", a.handleResetPage)
+			mux.HandleFunc("POST /reset", a.handleReset)
+			mux.HandleFunc("GET /verify-email", a.handleVerifyEmailPage)
+			mux.HandleFunc("POST /verify-email", a.handleVerifyEmail)
+			mux.HandleFunc("POST /account/email", a.handleAccountEmail)
+			mux.HandleFunc("POST /account/email/resend", a.handleAccountEmailResend)
+		}
 		mux.HandleFunc("POST /account/totp/setup", a.handleTOTPSetup)
 		mux.HandleFunc("POST /account/totp/enable", a.handleTOTPEnable)
 		mux.HandleFunc("POST /account/totp/disable", a.handleTOTPDisable)
@@ -142,6 +192,7 @@ func (a *App) Handler() http.Handler {
 		mux.HandleFunc("POST /admin/users/password", a.handleAdminUserPassword)
 		mux.HandleFunc("POST /admin/users/totp/disable", a.handleAdminUserTOTPDisable)
 		mux.HandleFunc("POST /admin/users/status", a.handleAdminUserStatus)
+		mux.HandleFunc("POST /admin/users/delete", a.handleAdminUserDelete)
 		mux.HandleFunc("GET /admin/reports", a.handleAdminReports)
 		mux.HandleFunc("GET /admin/audit", a.handleAdminAudit)
 		mux.HandleFunc("GET /admin/audit/export", a.handleAdminAuditExport)
@@ -149,6 +200,19 @@ func (a *App) Handler() http.Handler {
 		mux.HandleFunc("POST /admin/groups/create", a.handleAdminGroupCreate)
 		mux.HandleFunc("POST /admin/groups/rights", a.handleAdminGroupRights)
 		mux.HandleFunc("POST /admin/groups/delete", a.handleAdminGroupDelete)
+		mux.HandleFunc("GET /admin/pages", a.handleAdminPages)
+		mux.HandleFunc("POST /admin/pages/delete", a.handleAdminPageDelete)
+		mux.HandleFunc("POST /admin/pages/restore", a.handleAdminPageRestore)
+		mux.HandleFunc("GET /admin/entities", a.handleAdminEntities)
+		mux.HandleFunc("POST /admin/entities/types", a.handleAdminEntityTypeCreate)
+		mux.HandleFunc("POST /admin/entities/types/delete", a.handleAdminEntityTypeDelete)
+		mux.HandleFunc("POST /admin/entities/fields", a.handleAdminEntityFieldCreate)
+		mux.HandleFunc("POST /admin/entities/fields/delete", a.handleAdminEntityFieldDelete)
+		mux.HandleFunc("POST /admin/entities/save", a.handleAdminEntitySave)
+		mux.HandleFunc("POST /admin/entities/delete", a.handleAdminEntityDelete)
+		mux.HandleFunc("GET /admin/invites", a.handleAdminInvites)
+		mux.HandleFunc("POST /admin/invites/create", a.handleAdminInviteCreate)
+		mux.HandleFunc("POST /admin/invites/delete", a.handleAdminInviteDelete)
 		switch a.cfg.Content.Source {
 		case "postgres":
 			mux.HandleFunc("GET /edit", a.handleEditPage)
@@ -156,6 +220,7 @@ func (a *App) Handler() http.Handler {
 			mux.HandleFunc("GET /history", a.handleHistory)
 			mux.HandleFunc("GET /revision", a.handleRevision)
 			mux.HandleFunc("GET /translations", a.handleTranslations)
+			mux.HandleFunc("GET /entities", a.handleEntities)
 			mux.HandleFunc("GET /review", a.handleReview)
 			mux.HandleFunc("POST /review/approve", a.handleReviewApprove)
 			mux.HandleFunc("POST /review/reject", a.handleReviewReject)
@@ -172,10 +237,67 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /", a.servePage)
 
 	var handler http.Handler = mux
+	if a.cfg != nil && a.cfg.RateLimit.Enabled {
+		handler = a.withRateLimit(handler)
+	}
 	if a.auth != nil {
 		handler = a.withSession(handler)
 	}
+	if a.cfg != nil && a.cfg.Metrics.Enabled {
+		handler = a.withMetrics(handler)
+	}
 	return securityHeaders(writeLog(handler, a.site.AccessLog()))
+}
+
+func metricsPathFree(mux *http.ServeMux, path string) bool {
+	req := &http.Request{Method: http.MethodGet, URL: &url.URL{Path: path}, Host: "localhost"}
+	_, pattern := mux.Handler(req)
+	return pattern == "" || pattern == "/" || pattern == "GET /"
+}
+
+func (a *App) withRateLimit(next http.Handler) http.Handler {
+	cfg := a.cfg.RateLimit
+	window := cfg.WindowDuration()
+	routeWindow := cfg.RouteWindowDuration()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rateLimitExempt(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ip := a.requestIP(r)
+		if !a.allowRate(r.Context(), "rl:global:"+ip, cfg.Requests, window) {
+			a.metrics.observeRateLimited()
+			w.Header().Set("Retry-After", strconv.Itoa(int(window.Seconds())))
+			http.Error(w, "too many requests", http.StatusTooManyRequests)
+			return
+		}
+		if cfg.RouteRequests > 0 {
+			key := "rl:route:" + ip + ":" + auth.HashEmailToken(r.URL.Path)[:16]
+			if !a.allowRate(r.Context(), key, cfg.RouteRequests, routeWindow) {
+				a.metrics.observeRateLimited()
+				w.Header().Set("Retry-After", strconv.Itoa(int(routeWindow.Seconds())))
+				http.Error(w, "too many requests", http.StatusTooManyRequests)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func rateLimitExempt(path string) bool {
+	return strings.HasPrefix(path, "/assets/") || strings.HasPrefix(path, "/-/assets/") ||
+		path == "/-/healthz" || strings.HasPrefix(path, "/-/webhooks/") || strings.HasPrefix(path, "/media/")
+}
+
+func (a *App) requestIP(r *http.Request) string {
+	if a.auth != nil {
+		return a.auth.ClientIP(r)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 func (a *App) withSession(next http.Handler) http.Handler {
@@ -205,12 +327,13 @@ func (a *App) withSession(next http.Handler) http.Handler {
 func (a *App) baseData(r *http.Request, title string) baseData {
 	info := a.site.Info()
 	data := baseData{
-		Site:          info,
-		Title:         title,
-		Path:          r.URL.Path,
-		LoginEnabled:  a.auth != nil,
-		GitHubEnabled: a.auth != nil && a.auth.GitHubEnabled(),
-		Lang:          "zh-CN",
+		Site:             info,
+		Title:            title,
+		Path:             r.URL.Path,
+		LoginEnabled:     a.auth != nil,
+		GitHubEnabled:    a.auth != nil && a.auth.GitHubEnabled(),
+		Lang:             "zh-CN",
+		RegistrationMode: a.registrationMode(),
 	}
 	if a.cfg != nil && a.cfg.Site.Language != "" {
 		data.Lang = a.cfg.Site.Language
@@ -347,6 +470,8 @@ func (a *App) noticeTextFor(lang, code string) string {
 		return i18n.Text(lang, "notice_protected")
 	case "unprotected":
 		return i18n.Text(lang, "notice_unprotected")
+	case "protected_full":
+		return i18n.Text(lang, "notice_protected_full")
 	case "comment_added":
 		return i18n.Text(lang, "notice_comment_added")
 	case "comment_hidden":
@@ -383,6 +508,42 @@ func (a *App) noticeTextFor(lang, code string) string {
 		return i18n.Text(lang, "notice_totp_disabled")
 	case "user_totp_disabled":
 		return i18n.Text(lang, "notice_user_totp_disabled")
+	case "recovery_codes_generated":
+		return i18n.Text(lang, "notice_recovery_codes_generated")
+	case "entity_type_created":
+		return i18n.Text(lang, "notice_entity_type_created")
+	case "entity_type_deleted":
+		return i18n.Text(lang, "notice_entity_type_deleted")
+	case "entity_field_created":
+		return i18n.Text(lang, "notice_entity_field_created")
+	case "entity_field_deleted":
+		return i18n.Text(lang, "notice_entity_field_deleted")
+	case "entity_saved":
+		return i18n.Text(lang, "notice_entity_saved")
+	case "entity_deleted":
+		return i18n.Text(lang, "notice_entity_deleted")
+	case "page_deleted":
+		return i18n.Text(lang, "notice_page_deleted")
+	case "page_restored":
+		return i18n.Text(lang, "notice_page_restored")
+	case "account_deleted":
+		return i18n.Text(lang, "notice_account_deleted")
+	case "user_deleted":
+		return i18n.Text(lang, "notice_user_deleted")
+	case "email_verified":
+		return i18n.Text(lang, "notice_email_verified")
+	case "email_saved":
+		return i18n.Text(lang, "notice_email_saved")
+	case "email_verify_sent":
+		return i18n.Text(lang, "notice_email_verify_sent")
+	case "email_send_failed":
+		return i18n.Text(lang, "notice_email_send_failed")
+	case "registered":
+		return i18n.Text(lang, "notice_registered")
+	case "invite_created":
+		return i18n.Text(lang, "notice_invite_created")
+	case "invite_deleted":
+		return i18n.Text(lang, "notice_invite_deleted")
 	default:
 		return ""
 	}

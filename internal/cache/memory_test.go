@@ -25,6 +25,27 @@ func TestMemoryGetSetDelete(t *testing.T) {
 	}
 }
 
+func TestMemoryDeleteMatching(t *testing.T) {
+	c := NewMemory(10, 1<<20, time.Minute)
+	ctx := context.Background()
+	for key, value := range map[string]string{
+		":/guide/:one": "1",
+		":/guide/:two": "2",
+		":/other/:one": "3",
+	} {
+		if err := c.Set(ctx, key, []byte(value), time.Minute); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deleted, err := c.DeleteMatching(ctx, ":/guide/:")
+	if err != nil || deleted != 2 {
+		t.Fatalf("deleted = %d, %v", deleted, err)
+	}
+	if _, ok, _ := c.Get(ctx, ":/other/:one"); !ok {
+		t.Fatal("unrelated key should remain")
+	}
+}
+
 func TestMemoryAllow(t *testing.T) {
 	c := NewMemory(10, 1<<20, time.Minute)
 	ctx := context.Background()

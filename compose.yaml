@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: wikix
+      POSTGRES_USER: wikix
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wikix-change-me}
+    volumes:
+      - wikix-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wikix -d wikix"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "${WIKIX_PORT:-8080}:8080"
+    environment:
+      WIKIX_DATABASE_URL: postgres://wikix:${POSTGRES_PASSWORD:-wikix-change-me}@db:5432/wikix?sslmode=disable
+    volumes:
+      - ./deploy/wikix.yaml:/data/wikix.yaml:ro
+      - wikix-media:/data/media
+      - wikix-audit:/data/audit
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/-/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  wikix-db:
+  wikix-media:
+  wikix-audit:

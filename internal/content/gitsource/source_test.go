@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"wikix/internal/content"
+	"github.com/EggyFly/Wiki-X/internal/content"
 )
 
 func TestLoadPages(t *testing.T) {

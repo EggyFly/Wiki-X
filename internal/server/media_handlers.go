@@ -15,11 +15,11 @@ import (
 	"regexp"
 	"strings"
 
-	"wikix/internal/auth"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/auth"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
-var mediaNamePattern = regexp.MustCompile(`^[a-f0-9]{32}\.(png|jpg|gif|webp)$`)
+var mediaNamePattern = regexp.MustCompile(`^([a-f0-9]{32}|pr-[a-f0-9]{16})\.(png|jpg|gif|webp)$`)
 
 func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 	session, ok := a.requireRight(w, r, auth.RightUpload)
@@ -55,22 +55,7 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "文件超过大小限制"})
 		return
 	}
-	contentType := http.DetectContentType(data)
-	ext := ""
-	switch contentType {
-	case "image/png":
-		ext = ".png"
-	case "image/jpeg":
-		ext = ".jpg"
-	case "image/gif":
-		ext = ".gif"
-	case "image/webp":
-		ext = ".webp"
-	}
-	if ext == "" && len(data) >= 12 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
-		contentType = "image/webp"
-		ext = ".webp"
-	}
+	contentType, ext := detectMedia(data)
 	if ext == "" {
 		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "只支持 png, jpeg, gif, webp"})
 		return
@@ -188,6 +173,26 @@ func (a *App) handleUploadedMedia(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "inline")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.ServeContent(w, r, media.FileName, media.CreatedAt, file)
+}
+
+func detectMedia(data []byte) (string, string) {
+	contentType := http.DetectContentType(data)
+	ext := ""
+	switch contentType {
+	case "image/png":
+		ext = ".png"
+	case "image/jpeg":
+		ext = ".jpg"
+	case "image/gif":
+		ext = ".gif"
+	case "image/webp":
+		ext = ".webp"
+	}
+	if ext == "" && len(data) >= 12 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
+		contentType = "image/webp"
+		ext = ".webp"
+	}
+	return contentType, ext
 }
 
 func randomMediaName(ext string) (string, error) {

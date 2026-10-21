@@ -1,0 +1,44 @@
+site:
+  title: Wiki-X
+  description: 由 Docker Compose 启动的 Wiki-X 站点
+  language: zh-CN
+  base_url: http://localhost:8080
+  community_ui: true
+content:
+  source: postgres
+  dir: /data/content
+  max_file_size: 1048576
+  reload_interval: 0s
+server:
+  addr: ":8080"
+  access_log: false
+cache:
+  driver: redis
+  ttl: 10m
+  redis:
+    addr: redis:6379
+    password: ""
+    db: 0
+    prefix: wikix-compose
+database:
+  url: ""
+  max_conns: 10
+  auto_migrate: true
+auth:
+  secure_cookies: false
+  session_ttl: 336h
+  trusted_proxies: []
+media:
+  dir: /data/media
+  max_size: 8388608
+audit:
+  retention: 0s
+  archive_dir: /data/audit
+  interval: 24h
+comment:
+  rate_limit: 5
+  rate_window: 1m
+  blocked_words: []
+registration:
+  mode: off
+  default_group: user

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"wikix/internal/config"
-	"wikix/internal/store"
+	"github.com/EggyFly/Wiki-X/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
 func TestOAuthStateKinds(t *testing.T) {
