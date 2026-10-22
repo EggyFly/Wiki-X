@@ -10,16 +10,24 @@ import (
 	"os"
 	"path"
 	"strings"
+
+	assetutil "github.com/EggyFly/Wiki-X/internal/assets"
 )
 
 type Theme struct {
-	page     *template.Template
-	notFound *template.Template
-	assets   fs.FS
-	version  string
+	page         *template.Template
+	notFound     *template.Template
+	assets       fs.FS
+	version      string
+	styleAsset   string
+	faviconAsset string
 }
 
 func Load(fsys fs.FS, root string) (*Theme, error) {
+	return LoadWithAssets(fsys, root, nil)
+}
+
+func LoadWithAssets(fsys fs.FS, root string, assetFS fs.FS) (*Theme, error) {
 	root = strings.Trim(root, "/")
 	if root == "." {
 		root = ""
@@ -42,20 +50,36 @@ func Load(fsys fs.FS, root string) (*Theme, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse theme 404 templates: %w", err)
 	}
-	assets, err := fs.Sub(fsys, name("assets"))
-	if err != nil {
-		return nil, fmt.Errorf("theme assets: %w", err)
+	assets := assetFS
+	if assets == nil {
+		assets, err = fs.Sub(fsys, name("assets"))
+		if err != nil {
+			assets = emptyFS{}
+		}
 	}
 	version, err := hashTheme(fsys, root)
 	if err != nil {
 		return nil, fmt.Errorf("hash theme: %w", err)
 	}
 
-	return &Theme{page: page, notFound: notFound, assets: assets, version: version}, nil
+	return &Theme{
+		page:         page,
+		notFound:     notFound,
+		assets:       assets,
+		version:      version,
+		styleAsset:   assetutil.FindHashed(assets, "style", ".css"),
+		faviconAsset: assetutil.FindHashed(assets, "favicon", ".svg"),
+	}, nil
 }
 
 func LoadDir(dir string) (*Theme, error) {
 	return Load(os.DirFS(dir), ".")
+}
+
+type emptyFS struct{}
+
+func (emptyFS) Open(name string) (fs.File, error) {
+	return nil, fs.ErrNotExist
 }
 
 func (t *Theme) RenderPage(w io.Writer, data any) error {
@@ -72,6 +96,14 @@ func (t *Theme) Assets() fs.FS {
 
 func (t *Theme) Version() string {
 	return t.version
+}
+
+func (t *Theme) StyleAsset() string {
+	return t.styleAsset
+}
+
+func (t *Theme) FaviconAsset() string {
+	return t.faviconAsset
 }
 
 func hashTheme(fsys fs.FS, root string) (string, error) {

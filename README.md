@@ -20,6 +20,7 @@
 - GitHub OAuth 登录, 已有账号可以在 `/account` 绑定 GitHub 身份
 - 站内编辑, 草稿/待审/发布, 编辑冲突检测, 历史版本, unified diff, 审核队列
 - 编辑页 Markdown 工具栏和实时预览: 粗体/斜体/删除线/标题/链接/列表/任务列表/代码/引用/分隔线/表格, Ctrl+B/I/K 快捷键, 宽屏左右分栏, 实时字符数
+- 加载反馈: 预览首次加载显示扫光骨架屏, 刷新时保留旧内容并显示顶部扫光条; 上传和表单提交有按钮 spinner, 请求超时会给出错误提示
 - 组件指令 `wx-infobox`/`wx-notice`/`wx-gallery`/`wx-collapse`: 在 Markdown 中用 fenced code 声明, YAML 严格校验, 渲染失败降级为错误框
 - 结构化实体: 后台定义图鉴类型和字段, 录入角色/道具等数据, 页面可绑定实体, `wx-infobox` 用 `entity:` 自动渲染字段, `/entities` 支持筛选和排序
 - 审计留存: 按保留期导出 NDJSON + sha256 校验文件后清理旧日志, serve 定时执行, 也可用 `wikix audit archive` 手动跑
@@ -463,9 +464,32 @@ go run ./cmd/wikix audit archive -config wikix.yaml
 - 媒体文件 MIME 白名单和 `nosniff`
 - 响应包含 CSP, Referrer-Policy, X-Frame-Options 等基础头
 
+## 前端构建
+
+前端没有 npm 和运行时框架, 源文件放在 `web/`:
+
+- `web/ui/app.css`, `web/ui/app.js`: 站内 UI 资源
+- `web/themes/{default,compact}/style.css`, `favicon.svg`: 主题资源
+
+修改前端源文件后执行:
+
+```bash
+go generate ./...
+```
+
+生成器会做三件事:
+
+1. 用 `tdewolff/minify` 压缩 CSS/JS/SVG
+2. 按内容 sha256 前 8 位命名, 例如 `app~3cf97567.css`, `style~1a5a2d3c.css`
+3. 清理目标目录里过期的 `~hash` 旧文件
+
+生成结果统一在 `frontend/dist/` (`ui/` 与 `themes/`), 该目录已加入 `.gitignore`, 只保留 `.gitkeep`. 这些文件会被 embed 进二进制. 模板只引用带 hash 的文件名, 这些文件响应 `immutable` 缓存喵~
+CI 和 Docker 构建都会先运行生成器, 也可以用 `go run ./cmd/frontend -check` 检查生成文件是否过期.
+
 ## 开发与测试
 
 ```bash
+go generate ./...
 go test ./...
 go vet ./...
 ```
@@ -484,7 +508,7 @@ go test ./...
 
 ## 路线图
 
-- 外置搜索引擎 (Meilisearch/Typesense) 和中文分词, 10 万页搜索基准
+- 真实 Meilisearch 实例验收、中文分词和 10 万页搜索基准
 - 真实 GitHub OAuth/App、SMTP、TLS 反代、Prometheus/Grafana 验收
 - 压测与容量结论, 按真实流量调整限流阈值
 - 更多 OAuth/OIDC provider, 翻译更新通知, WYSIWYG 编辑器

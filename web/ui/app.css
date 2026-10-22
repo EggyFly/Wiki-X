@@ -667,6 +667,111 @@
   border-top: 1px solid var(--line, #dbe1dc);
 }
 
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--code-bg, #f0f2ef);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .7), transparent);
+  transform: translateX(-100%);
+  animation: skeleton-sweep 1.2s ease-in-out infinite;
+}
+
+.skeleton-title {
+  width: 38%;
+  height: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.skeleton-line {
+  width: 100%;
+  height: .95rem;
+  margin: .55rem 0;
+}
+
+.skeleton-line.mid {
+  width: 72%;
+}
+
+.skeleton-line.short {
+  width: 46%;
+}
+
+.skeleton-block {
+  height: 180px;
+  margin-top: 1rem;
+}
+
+.skeleton-inline {
+  display: inline-block;
+  width: 48px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.preview-loading {
+  position: relative;
+}
+
+.preview-loading::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--accent, #0f6b5f), transparent);
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.2s linear infinite;
+}
+
+.preview-loading > :not(.skeleton) {
+  opacity: .55;
+}
+
+.btn.is-loading::after {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spinner-rotate .7s linear infinite;
+}
+
+.btn.is-loading {
+  cursor: progress;
+}
+
+@keyframes skeleton-sweep {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes spinner-rotate {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after,
+  .preview-loading::before,
+  .btn.is-loading::after {
+    animation: none;
+  }
+}
+
 .entity-filter {
   flex-wrap: wrap;
 }

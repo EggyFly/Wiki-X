@@ -10,17 +10,28 @@ import (
 	"io/fs"
 	"sort"
 
+	"github.com/EggyFly/Wiki-X/frontend"
+	assetutil "github.com/EggyFly/Wiki-X/internal/assets"
 	"github.com/EggyFly/Wiki-X/internal/site"
 	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
-//go:embed ui/*.html ui/assets/*
+//go:generate go run ../../cmd/frontend
+
+//go:embed ui/*.html
 var uiFS embed.FS
 
 type appUI struct {
 	pages   map[string]*template.Template
 	assets  fs.FS
 	version string
+	cssName string
+	jsName  string
+}
+
+type uiAssets struct {
+	CSS string
+	JS  string
 }
 
 type baseData struct {
@@ -35,6 +46,7 @@ type baseData struct {
 	Notice           string
 	Error            string
 	UIVersion        string
+	UIAssets         uiAssets
 	RegistrationMode string
 	T                map[string]string
 }
@@ -322,9 +334,9 @@ type messageData struct {
 }
 
 func loadUI() (*appUI, error) {
-	assets, err := fs.Sub(uiFS, "ui/assets")
+	assets, err := fs.Sub(frontend.FS, "dist/ui")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("frontend assets are missing, run go generate ./...: %w", err)
 	}
 	names := []string{"login", "verify", "forgot", "reset", "verify_email", "register", "register_verify", "edit", "history", "revision", "review", "search", "message", "pr", "account", "watchlist", "discussion", "admin_users", "admin_reports", "admin_audit", "admin_groups", "admin_invites", "admin_entities", "admin_pages", "entities", "translations"}
 	pages := make(map[string]*template.Template, len(names))
@@ -339,7 +351,21 @@ func loadUI() (*appUI, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &appUI{pages: pages, assets: assets, version: version}, nil
+	cssName := assetutil.FindHashed(assets, "app", ".css")
+	jsName := assetutil.FindHashed(assets, "app", ".js")
+	if _, err := fs.Stat(assets, cssName); err != nil {
+		return nil, fmt.Errorf("ui asset %s is missing, run go generate ./...", cssName)
+	}
+	if _, err := fs.Stat(assets, jsName); err != nil {
+		return nil, fmt.Errorf("ui asset %s is missing, run go generate ./...", jsName)
+	}
+	return &appUI{
+		pages:   pages,
+		assets:  assets,
+		version: version,
+		cssName: cssName,
+		jsName:  jsName,
+	}, nil
 }
 
 func hashAssets(assets fs.FS) (string, error) {

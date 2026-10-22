@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EggyFly/Wiki-X/internal/assets"
 	"github.com/EggyFly/Wiki-X/internal/site"
 )
 
@@ -93,7 +94,7 @@ func (a *App) handleThemeAsset(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if r.URL.Query().Get("v") != "" {
+	if r.URL.Query().Get("v") != "" || assets.IsHashed(path.Base(r.URL.Path)) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=3600")
@@ -276,7 +277,7 @@ func writeLog(next http.Handler, access bool) http.Handler {
 
 func cacheAssets(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("v") != "" {
+		if r.URL.Query().Get("v") != "" || assets.IsHashed(path.Base(r.URL.Path)) {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		} else {
 			w.Header().Set("Cache-Control", "public, max-age=3600")

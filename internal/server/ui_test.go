@@ -54,6 +54,7 @@ func TestUIRender(t *testing.T) {
 		Lang:          "zh-CN",
 		LoginEnabled:  true,
 		GitHubEnabled: false,
+		UIAssets:      uiAssets{CSS: "app~12345678.css", JS: "app~12345678.js"},
 		T:             i18n.For("zh-CN"),
 	}
 	now := time.Now()
@@ -70,6 +71,8 @@ func TestUIRender(t *testing.T) {
 		{"edit", editData{baseData: base, Route: "/x/", PageTitle: "X", Body: "body"}, `data-md="task"`},
 		{"edit", editData{baseData: base, Route: "/x/", PageTitle: "X", Body: "body"}, `data-md="hr"`},
 		{"edit", editData{baseData: base, Route: "/x/", PageTitle: "X", Body: "body"}, `data-chars-label="字符数"`},
+		{"edit", editData{baseData: base, Route: "/x/", PageTitle: "X", Body: "body"}, `data-loading-label="预览加载中"`},
+		{"login", loginData{baseData: base, HasUsers: true}, `/-/assets/app~`},
 		{"history", historyData{baseData: base, Route: "/x/", Revisions: []*store.Revision{{ID: 1, Route: "/x/", Status: "published", CreatedAt: time.Now()}}}, "历史版本"},
 		{"revision", revisionData{baseData: base, Revision: &store.Revision{ID: 1, Route: "/x/", Status: "published", CreatedAt: time.Now()}, Diff: "diff"}, "版本 #1"},
 		{"review", reviewData{baseData: base}, "待审核"},

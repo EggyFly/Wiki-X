@@ -344,6 +344,9 @@ func (a *App) baseData(r *http.Request, title string) baseData {
 		data.CSRF = session.CSRFToken
 	}
 	data.UIVersion = a.uiVersion()
+	if a.ui != nil {
+		data.UIAssets = uiAssets{CSS: a.ui.cssName, JS: a.ui.jsName}
+	}
 	return data
 }
 

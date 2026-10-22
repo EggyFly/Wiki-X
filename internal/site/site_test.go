@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	assetutil "github.com/EggyFly/Wiki-X/internal/assets"
 	"github.com/EggyFly/Wiki-X/internal/config"
 )
 
@@ -37,7 +38,7 @@ func TestLoadWithBuiltinTheme(t *testing.T) {
 	if !strings.Contains(string(loaded.NotFound()), "页面不存在") {
 		t.Fatal("404 page missing")
 	}
-	css, err := fs.ReadFile(loaded.Assets(), "style.css")
+	css, err := fs.ReadFile(loaded.Assets(), assetutil.FindHashed(loaded.Assets(), "style", ".css"))
 	if err != nil || len(css) == 0 {
 		t.Fatalf("assets: %v", err)
 	}
@@ -166,14 +167,14 @@ func TestSkins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(compact), "/assets/compact/style.css") {
+	if !strings.Contains(string(compact), "/assets/compact/style~") {
 		t.Fatal("compact skin assets missing")
 	}
 	fallback, err := loaded.RenderSkin(context.Background(), "/", "missing")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(fallback), "/assets/default/style.css") {
+	if !strings.Contains(string(fallback), "/assets/default/style~") {
 		t.Fatal("skin fallback missing")
 	}
 }

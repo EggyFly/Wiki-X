@@ -28,6 +28,8 @@
 - 审计游标分页 (R13): `(created_at, id)` 键集分页, 深分页不退化
 - Prometheus 指标 (R14): `/-/metrics`, HTTP/限流/缓存/渲染/队列指标, 可选 Bearer token
 - 编辑器增强 (R15): 删除线/任务列表/分隔线, Ctrl+B/I/K, 宽屏分栏预览, 字符数
+- 加载反馈: 预览骨架屏扫光, 上传/表单按钮 spinner, 请求超时提示, 减少动态效果偏好支持
+- 前端构建: `web/` 源文件经 `cmd/frontend` 压缩, 输出 `filename~hash8.ext`, 模板引用 hash 文件并 immutable 缓存
 
 ### 发布
 

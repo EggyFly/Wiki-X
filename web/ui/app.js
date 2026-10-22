@@ -5,6 +5,20 @@
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
+  function fetchWithTimeout(url, options, timeoutMs) {
+    if (typeof AbortController === "undefined") {
+      return fetch(url, options);
+    }
+    var controller = new AbortController();
+    var timer = setTimeout(function () {
+      controller.abort();
+    }, timeoutMs);
+    var request = Object.assign({}, options, { signal: controller.signal });
+    return fetch(url, request).finally(function () {
+      clearTimeout(timer);
+    });
+  }
+
   function wrap(textarea, before, after, placeholder) {
     var start = textarea.selectionStart || 0;
     var end = textarea.selectionEnd || 0;
@@ -156,18 +170,45 @@
 
     updateCount();
 
+    var loadingLabel = preview.getAttribute("data-loading-label") || "预览加载中";
+
+    function previewSkeleton() {
+      return '<div class="skeleton skeleton-title"></div>' +
+        '<div class="skeleton skeleton-line"></div>' +
+        '<div class="skeleton skeleton-line mid"></div>' +
+        '<div class="skeleton skeleton-line short"></div>' +
+        '<div class="skeleton skeleton-block"></div>';
+    }
+
+    function setPreviewBusy(busy) {
+      preview.classList.toggle("preview-loading", busy);
+      if (busy) {
+        preview.setAttribute("aria-busy", "true");
+        preview.setAttribute("aria-label", loadingLabel);
+      } else {
+        preview.removeAttribute("aria-busy");
+        preview.removeAttribute("aria-label");
+      }
+    }
+
     async function renderPreview() {
       var current = ++sequence;
+      if (!preview.hidden) {
+        if (preview.getAttribute("data-loaded") !== "1") {
+          preview.innerHTML = previewSkeleton();
+        }
+        setPreviewBusy(true);
+      }
       try {
         var params = new URLSearchParams();
         params.set("csrf_token", csrf ? csrf.value : "");
         params.set("body", textarea.value);
-        var response = await fetch("/edit/preview", {
+        var response = await fetchWithTimeout("/edit/preview", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: params.toString(),
           credentials: "same-origin"
-        });
+        }, 15000);
         var data = await response.json().catch(function () {
           return {};
         });
@@ -178,9 +219,13 @@
           throw new Error(data.error || errorLabel);
         }
         preview.innerHTML = data.html || "";
+        preview.setAttribute("data-loaded", "1");
+        setPreviewBusy(false);
       } catch (error) {
         if (current === sequence) {
           preview.textContent = errorLabel;
+          preview.setAttribute("data-loaded", "0");
+          setPreviewBusy(false);
         }
       }
     }
@@ -207,17 +252,23 @@
       event.preventDefault();
       var button = form.querySelector("button[type=submit]");
       if (status) {
-        status.textContent = labels.uploading;
+        status.textContent = "";
+        var bar = document.createElement("span");
+        bar.className = "skeleton skeleton-inline";
+        status.appendChild(bar);
+        status.appendChild(document.createTextNode(labels.uploading));
       }
       if (button) {
         button.disabled = true;
+        button.classList.add("is-loading");
+        button.setAttribute("aria-busy", "true");
       }
       try {
-        var response = await fetch(form.action, {
+        var response = await fetchWithTimeout(form.action, {
           method: "POST",
           body: new FormData(form),
           credentials: "same-origin"
-        });
+        }, 30000);
         var data = await response.json().catch(function () {
           return {};
         });
@@ -242,11 +293,54 @@
       } finally {
         if (button) {
           button.disabled = false;
+          button.classList.remove("is-loading");
+          button.removeAttribute("aria-busy");
         }
+      }
+    });
+  }
+
+  function resetLoadingButtons() {
+    var buttons = document.querySelectorAll(".is-loading");
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].classList.remove("is-loading");
+      buttons[i].removeAttribute("aria-busy");
+      if (buttons[i].tagName === "BUTTON") {
+        buttons[i].disabled = false;
+      }
+    }
+  }
+
+  function initFormLoading() {
+    document.addEventListener("submit", function (event) {
+      var form = event.target;
+      if (!form || form.tagName !== "FORM" || form.id === "upload-form") {
+        return;
+      }
+      var method = (form.getAttribute("method") || "get").toLowerCase();
+      if (method !== "post") {
+        return;
+      }
+      var button = event.submitter || form.querySelector('button[type="submit"]');
+      if (!button) {
+        return;
+      }
+      button.classList.add("is-loading");
+      button.setAttribute("aria-busy", "true");
+      if (!button.name) {
+        setTimeout(function () {
+          button.disabled = true;
+        }, 0);
+      }
+    });
+    window.addEventListener("pageshow", function (event) {
+      if (event.persisted) {
+        resetLoadingButtons();
       }
     });
   }
 
   initEditor();
   initUpload();
+  initFormLoading();
 })();

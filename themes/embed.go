@@ -2,5 +2,5 @@ package themes
 
 import "embed"
 
-//go:embed all:default all:compact
+//go:embed default/*.html compact/*.html
 var FS embed.FS

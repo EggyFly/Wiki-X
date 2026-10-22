@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{if .Title}}{{.Title}} | {{end}}{{.Site.Title}}</title>
-  <link rel="icon" href="/assets/{{.Site.CurrentSkin}}/favicon.svg?v={{.Site.AssetVersion}}" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/{{.Site.CurrentSkin}}/style.css?v={{.Site.AssetVersion}}">
-  <link rel="stylesheet" href="/-/assets/app.css?v={{.UIVersion}}">
-  <script src="/-/assets/app.js?v={{.UIVersion}}" defer></script>
+  <link rel="icon" href="/assets/{{.Site.CurrentSkin}}/{{.Site.FaviconAsset}}" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/{{.Site.CurrentSkin}}/{{.Site.StyleAsset}}">
+  <link rel="stylesheet" href="/-/assets/{{.UIAssets.CSS}}">
+  <script src="/-/assets/{{.UIAssets.JS}}" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">{{.T.skip_to_content}}</a>

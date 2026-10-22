@@ -22,6 +22,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"github.com/EggyFly/Wiki-X/frontend"
 	"github.com/EggyFly/Wiki-X/internal/cache"
 	"github.com/EggyFly/Wiki-X/internal/components"
 	"github.com/EggyFly/Wiki-X/internal/config"
@@ -47,6 +48,8 @@ type SiteInfo struct {
 	Description  string
 	BaseURL      string
 	AssetVersion string
+	StyleAsset   string
+	FaviconAsset string
 	Community    bool
 	History      bool
 	Translations bool
@@ -254,6 +257,8 @@ func (s *Site) loadState(ctx context.Context) (*state, error) {
 		themePack := themesMap[skin.Name]
 		info := siteInfo
 		info.AssetVersion = themePack.Version()
+		info.StyleAsset = themePack.StyleAsset()
+		info.FaviconAsset = themePack.FaviconAsset()
 		info.CurrentSkin = skin.Name
 		data, err := s.renderNotFound(themePack, info)
 		if err != nil {
@@ -343,6 +348,8 @@ func (s *Site) RenderSkin(ctx context.Context, route, skin string) ([]byte, erro
 	}
 	info := st.siteInfo
 	info.AssetVersion = themePack.Version()
+	info.StyleAsset = themePack.StyleAsset()
+	info.FaviconAsset = themePack.FaviconAsset()
 	info.CurrentSkin = skinName
 	key := s.cacheKey(st, page, route, skinName, themePack.Version())
 
@@ -542,6 +549,8 @@ func (s *Site) Info() SiteInfo {
 	info := st.siteInfo
 	if themePack, ok := st.themes[st.defaultSkin]; ok {
 		info.AssetVersion = themePack.Version()
+		info.StyleAsset = themePack.StyleAsset()
+		info.FaviconAsset = themePack.FaviconAsset()
 	}
 	info.CurrentSkin = st.defaultSkin
 	info.Skins = append([]SkinInfo(nil), st.skins...)
@@ -788,7 +797,11 @@ func loadThemes(cfg *config.Config) (map[string]*theme.Theme, []SkinInfo, string
 		{"default", i18n.Text(lang, "skin_default")},
 		{"compact", i18n.Text(lang, "skin_compact")},
 	} {
-		themePack, err := theme.Load(themes.FS, item.name)
+		assetFS, err := fs.Sub(frontend.FS, "dist/themes/"+item.name)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("frontend theme assets are missing, run go generate ./...: %w", err)
+		}
+		themePack, err := theme.LoadWithAssets(themes.FS, item.name, assetFS)
 		if err != nil {
 			return nil, nil, "", fmt.Errorf("load builtin theme %s: %w", item.name, err)
 		}

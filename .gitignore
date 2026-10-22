@@ -22,3 +22,6 @@ dist/
 *.*~examples/community/media/
 *.pem
 *.key
+!frontend/dist/
+frontend/dist/*
+!frontend/dist/.gitkeep

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	assetutil "github.com/EggyFly/Wiki-X/internal/assets"
 	"github.com/EggyFly/Wiki-X/internal/config"
 	"github.com/EggyFly/Wiki-X/internal/site"
 )
@@ -116,11 +117,12 @@ func TestHandler(t *testing.T) {
 	})
 
 	t.Run("asset", func(t *testing.T) {
-		res := request(handler, http.MethodGet, "/assets/style.css", nil)
+		style := assetutil.FindHashed(s.Assets(), "style", ".css")
+		res := request(handler, http.MethodGet, "/assets/"+style, nil)
 		if res.Code != http.StatusOK {
 			t.Fatalf("status = %d", res.Code)
 		}
-		if got := res.Header().Get("Cache-Control"); got != "public, max-age=3600" {
+		if got := res.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
 			t.Fatalf("cache control = %q", got)
 		}
 		if !strings.Contains(res.Header().Get("Content-Type"), "text/css") {
@@ -129,7 +131,8 @@ func TestHandler(t *testing.T) {
 	})
 
 	t.Run("versioned asset", func(t *testing.T) {
-		res := request(handler, http.MethodGet, "/assets/style.css?v=abc", nil)
+		style := assetutil.FindHashed(s.Assets(), "style", ".css")
+		res := request(handler, http.MethodGet, "/assets/"+style+"?v=abc", nil)
 		if res.Code != http.StatusOK {
 			t.Fatalf("status = %d", res.Code)
 		}
@@ -152,7 +155,8 @@ func TestHandler(t *testing.T) {
 	})
 
 	t.Run("skin asset", func(t *testing.T) {
-		res := request(handler, http.MethodGet, "/assets/compact/style.css", nil)
+		style := assetutil.FindHashed(s.AssetsFor("compact"), "style", ".css")
+		res := request(handler, http.MethodGet, "/assets/compact/"+style, nil)
 		if res.Code != http.StatusOK {
 			t.Fatalf("status = %d", res.Code)
 		}
@@ -185,7 +189,7 @@ func TestHandler(t *testing.T) {
 		if res.Code != http.StatusOK {
 			t.Fatalf("status = %d", res.Code)
 		}
-		if !strings.Contains(res.Body.String(), "/assets/compact/style.css") {
+		if !strings.Contains(res.Body.String(), "/assets/compact/style~") {
 			t.Fatal("compact assets not used")
 		}
 		if !strings.Contains(res.Header().Get("Vary"), "Cookie") {

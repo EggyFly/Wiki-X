@@ -6,8 +6,8 @@
   <title>{{if .Page.Title}}{{.Page.Title}} | {{end}}{{.Site.Title}}</title>
   <meta name="description" content="{{if .Page.Description}}{{.Page.Description}}{{else}}{{.Site.Description}}{{end}}">
   {{if .Site.BaseURL}}<link rel="canonical" href="{{.Site.BaseURL}}{{.Path}}">{{end}}
-  <link rel="icon" href="/assets/{{.Site.CurrentSkin}}/favicon.svg?v={{.Site.AssetVersion}}" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/{{.Site.CurrentSkin}}/style.css?v={{.Site.AssetVersion}}">
+  <link rel="icon" href="/assets/{{.Site.CurrentSkin}}/{{.Site.FaviconAsset}}" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/{{.Site.CurrentSkin}}/{{.Site.StyleAsset}}">
 </head>
 <body>
   <a class="skip-link" href="#main">{{.T.skip_to_content}}</a>
