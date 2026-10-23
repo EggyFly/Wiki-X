@@ -50,7 +50,11 @@ func New(opts Options) (Cache, error) {
 		if strings.TrimSpace(opts.RedisAddr) == "" {
 			return NewMemory(opts.MaxEntries, opts.MaxBytes, opts.TTL), nil
 		}
-		return newRedis(opts)
+		redisCache, err := newRedis(opts)
+		if err != nil {
+			return NewMemory(opts.MaxEntries, opts.MaxBytes, opts.TTL), nil
+		}
+		return redisCache, nil
 	default:
 		return nil, fmt.Errorf("unknown cache driver %q", opts.Driver)
 	}

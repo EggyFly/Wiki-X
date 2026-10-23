@@ -33,8 +33,16 @@ services:
         required: false
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgres://wiki_x:wiki_x-change-me@db:5432/wiki_x?sslmode=disable}
+      CONTENT_SOURCE: postgres
+      CONTENT_DIR: /data/content
+      SITE_COMMUNITY_UI: "true"
+      CACHE_DRIVER: redis
+      REDIS_ADDR: redis:6379
+      MEDIA_DIR: /data/media
+      AUDIT_ARCHIVE_DIR: /data/audit
     volumes:
       - ./deploy/wiki_x.yaml:/data/wiki_x.yaml:ro
+      - ./examples/basic/content:/data/content:ro
       - wiki_x-media:/data/media
       - wiki_x-audit:/data/audit
     depends_on:

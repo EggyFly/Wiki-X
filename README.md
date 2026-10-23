@@ -27,57 +27,40 @@
 
 ## 快速开始
 
-需要 Go 1.27.3 或更高版本. 首次运行先生成前端资源:
-
-```bash
-go generate ./...
-```
-
-### Git 模式
-
-```bash
-go run ./cmd/wiki_x serve -config examples/basic/wiki_x.yaml
-go run ./cmd/wiki_x build -config examples/basic/wiki_x.yaml -out dist
-```
-
-默认监听 `:8080`. Git 模式不依赖数据库. 如果只需要阅读和静态部署, 到这里就够了.
-
-要用远程仓库时, 在配置里填写 `content.git_url`, Wiki-X 会在目录缺失时自动克隆:
-
-```yaml
-content:
-  source: git
-  dir: content
-  git_url: https://github.com/owner/wiki-content.git
-  git_branch: main
-  git_depth: 0
-  git_pull: false
-```
-
-### PostgreSQL 社区模式
-
-先准备 PostgreSQL 和 Redis. 数据库口令只通过环境变量传入:
-
-```bash
-export DATABASE_URL='postgres://postgres:password@127.0.0.1:5432/wiki_x_dev?sslmode=disable'
-
-go run ./cmd/wiki_x migrate -config examples/community/wiki_x.yaml
-go run ./cmd/wiki_x import  -config examples/community/wiki_x.yaml
-printf 'change-me-please\n' | go run ./cmd/wiki_x user create -config examples/community/wiki_x.yaml -name admin -admin
-go run ./cmd/wiki_x serve -config examples/community/wiki_x.yaml
-```
-
-打开 `/login` 登录. 示例配置默认使用内存缓存; 多实例部署时把 `cache.driver` 改为 `redis` 并填写地址.
-
-### Docker Compose
+需要 Go 1.27.3 或更高版本.
 
 ```bash
 cp .env.example .env
-# 修改 .env: POSTGRES_PASSWORD 要和 DATABASE_URL 里的口令一致
-# DATABASE_URL 留空时使用 compose.yaml 里的默认连接串
-docker compose up -d --build
-docker compose exec app wiki_x user create -config /data/wiki_x.yaml -name admin -admin
+# 编辑 .env, 至少确认 SITE_BASE_URL
+go generate ./...
+go run ./cmd/wiki_x serve
 ```
+
+默认读取根目录的 `wiki_x.yaml`, 使用 Git 模式, 内容在 `examples/basic/content`, 监听 `:8080`.
+不需要数据库, 也不需要额外传 `-config`.
+静态构建直接运行 `go run ./cmd/wiki_x build`, 产物在 `dist/`.
+
+**要开社区模式时**, 先准备一个 PostgreSQL 数据库, 把 `.env` 改成下面这样, 再执行迁移建表、导入和创建管理员:
+
+```dotenv
+CONTENT_SOURCE=postgres
+CONTENT_DIR=examples/basic/content
+DATABASE_URL=postgres://postgres:password@127.0.0.1:5432/wiki_x_dev?sslmode=disable
+SITE_COMMUNITY_UI=true
+```
+
+```bash
+go run ./cmd/wiki_x migrate
+go run ./cmd/wiki_x import
+printf 'change-me-please\n' | go run ./cmd/wiki_x user create -name admin -admin
+go run ./cmd/wiki_x serve
+```
+
+Redis 是可选的, `CACHE_DRIVER=auto` 在没有 Redis 时会自动使用内存缓存.
+
+### Docker Compose
+
+Docker 部署参数见 `compose.yaml` 和 `deploy/wiki_x.yaml`.
 
 细节见 [docs/README.md](docs/README.md#2-配置) 和 [docs/HANDOVER.md](docs/HANDOVER.md).
 

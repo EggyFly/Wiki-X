@@ -14,6 +14,7 @@
 
 ### 新增
 
+- 根目录 `wiki_x.yaml` 和 `.env` 一键启动: 默认 Git 模式, 不需要 `-config` 和数据库
 - 音频媒体: 上传和 Git 媒体支持 wav/mp3/ogg/flac, Range 播放, `wx-audio` 组件和编辑器工具栏
 - Wwise/FMOD bank 不做解析, 上传时拒绝 `.bnk`/`.wem`/`.bank`/`.fsb`, 要求先导出为网页音频格式
 - 阿里云 OSS 媒体存储: `media.storage: oss`, 私有签名 URL、public-read、public-read-write, 自定义公开域名和对象前缀

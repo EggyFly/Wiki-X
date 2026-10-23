@@ -60,6 +60,7 @@ site:
 ```
 
 站点导航和多语言列表属于结构性配置, 只写在 YAML 里. 服务参数和密钥可以写到 `.env`.
+仓库根目录提供了 `wiki_x.yaml`, 默认是 Git 模式并指向示例内容; 直接 `go run ./cmd/wiki_x serve` 即可启动, 不需要再传 `-config`.
 
 ### 2.2 .env
 
@@ -71,14 +72,14 @@ cp .env.example /path/to/config-dir/.env
 # 修改 .env 里的数据库口令、SMTP、GitHub 等配置
 ```
 
-- `wiki_x` 读取配置文件同目录的 `.env` 喵~
-- 优先级: 进程环境变量 > `.env` > YAML喵~
-- 用 `ENV_FILE=/path/to/file` 可以指定其他 env 文件喵~
-- `.env` 支持 `KEY=VALUE`, `export KEY=VALUE`, 单引号/双引号值, 空行, 整行 `#` 注释, 以及值后面的行内注释喵~
-- 行内注释只在 `#` 前面有空格或制表符, 或 `#` 位于值开头时生效; 值本身要带 `#` 时请用引号包住整个值, 引号后面仍可写行内注释喵~
-- `.env.example` 顶部的 `POSTGRES_PASSWORD` 和 `PORT` 只给 Docker Compose 用, Wiki-X 本身会忽略这两个键喵~
-- `.env` 不支持多行值和变量展开, 复杂结构继续写在 YAML 里喵~
-- `.env` 已加入 `.gitignore`, 不要提交真实口令喵~
+- `wiki_x` 读取配置文件同目录的 `.env` 
+- 优先级: 进程环境变量 > `.env` > YAML
+- 用 `ENV_FILE=/path/to/file` 可以指定其他 env 文件
+- `.env` 支持 `KEY=VALUE`, `export KEY=VALUE`, 单引号/双引号值, 空行, 整行 `#` 注释, 以及值后面的行内注释
+- 行内注释只在 `#` 前面有空格或制表符, 或 `#` 位于值开头时生效; 值本身要带 `#` 时请用引号包住整个值, 引号后面仍可写行内注释
+- `.env.example` 顶部的 `POSTGRES_PASSWORD` 和 `PORT` 只给 Docker Compose 用, Wiki-X 本身会忽略这两个键
+- `.env` 不支持多行值和变量展开, 复杂结构继续写在 YAML 里
+- `.env` 已加入 `.gitignore`, 不要提交真实口令
 
 `ENV_FILE` 本身不会从 `.env` 读取, 需要用进程环境变量传入. `wiki_x version` 这类不读配置的命令不会加载 `.env`.
 
@@ -524,7 +525,7 @@ go generate ./...
 2. 按内容 sha256 前 8 位命名, 例如 `app~3cf97567.css`, `style~1a5a2d3c.css`
 3. 清理目标目录里过期的 `~hash` 旧文件
 
-生成结果统一在 `frontend/dist/` (`ui/` 与 `themes/`), 该目录已加入 `.gitignore`, 只保留 `.gitkeep`. 这些文件会被 embed 进二进制. 模板只引用带 hash 的文件名, 这些文件响应 `immutable` 缓存喵~
+生成结果统一在 `frontend/dist/` (`ui/` 与 `themes/`), 该目录已加入 `.gitignore`, 只保留 `.gitkeep`. 这些文件会被 embed 进二进制. 模板只引用带 hash 的文件名, 这些文件响应 `immutable` 缓存
 CI 和 Docker 构建都会先运行生成器, 也可以用 `go run ./cmd/frontend -check` 检查生成文件是否过期.
 
 ## 21 开发与测试
