@@ -5,10 +5,12 @@ go 1.27
 toolchain go1.27.3
 
 require (
+	github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+	github.com/tdewolff/minify/v2 v2.24.22
 	github.com/yuin/goldmark v1.8.6
 	golang.org/x/crypto v0.58.0
 	golang.org/x/oauth2 v0.37.0
@@ -23,9 +25,9 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
-	github.com/tdewolff/minify/v2 v2.24.22 // indirect
 	github.com/tdewolff/parse/v2 v2.8.19 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/time v0.16.0 // indirect
 )

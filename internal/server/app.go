@@ -21,6 +21,7 @@ import (
 	"github.com/EggyFly/Wiki-X/internal/ghclient"
 	"github.com/EggyFly/Wiki-X/internal/i18n"
 	"github.com/EggyFly/Wiki-X/internal/mail"
+	mediastore "github.com/EggyFly/Wiki-X/internal/media"
 	"github.com/EggyFly/Wiki-X/internal/render"
 	"github.com/EggyFly/Wiki-X/internal/search"
 	"github.com/EggyFly/Wiki-X/internal/site"
@@ -42,6 +43,7 @@ type App struct {
 	mailer        mail.Sender
 	metrics       *metricsRegistry
 	searchClient  *search.Client
+	mediaStore    mediastore.Store
 }
 
 func NewApp(cfg *config.Config, s *site.Site, data *store.Store, authManager *auth.Manager, syncContent func(context.Context) error) (*App, error) {
@@ -49,10 +51,29 @@ func NewApp(cfg *config.Config, s *site.Site, data *store.Store, authManager *au
 	if err != nil {
 		return nil, err
 	}
+	var mediaStore mediastore.Store
 	if cfg != nil && cfg.Content.Source == "postgres" {
-		if err := os.MkdirAll(cfg.Media.Dir, 0o755); err != nil {
-			return nil, fmt.Errorf("create media dir: %w", err)
+		if cfg.Media.Storage == "oss" {
+			ttl, _ := time.ParseDuration(cfg.Media.OSS.SignedURLTTL)
+			mediaStore, err = mediastore.NewOSS(mediastore.OSSOptions{
+				Endpoint:        cfg.Media.OSS.Endpoint,
+				Bucket:          cfg.Media.OSS.Bucket,
+				AccessKeyID:     cfg.Media.OSS.AccessKeyID,
+				AccessKeySecret: cfg.Media.OSS.AccessKeySecret,
+				PublicBaseURL:   cfg.Media.OSS.PublicBaseURL,
+				PathPrefix:      cfg.Media.OSS.PathPrefix,
+				ACL:             cfg.Media.OSS.ACL,
+				SignedURLTTL:    ttl,
+			})
+		} else {
+			mediaStore, err = mediastore.NewLocal(cfg.Media.Dir)
 		}
+		if err != nil {
+			return nil, fmt.Errorf("init media store: %w", err)
+		}
+	}
+	if cfg != nil && cfg.Media.Storage == "oss" && cfg.Media.OSS.ACL == "public-read-write" {
+		slog.Warn("media OSS ACL allows anonymous writes", "bucket", cfg.Media.OSS.Bucket)
 	}
 	app := &App{
 		cfg:           cfg,
@@ -65,6 +86,7 @@ func NewApp(cfg *config.Config, s *site.Site, data *store.Store, authManager *au
 		limitFallback: cache.NewMemory(1, 1, time.Minute),
 		markdown:      render.NewMarkdown(),
 		metrics:       newMetrics(),
+		mediaStore:    mediaStore,
 	}
 	if cfg != nil && cfg.Search.Backend == "meilisearch" {
 		app.searchClient = search.NewClient(cfg.Search.URL, cfg.Search.APIKey, cfg.Search.Index)

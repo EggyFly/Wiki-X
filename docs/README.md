@@ -322,12 +322,28 @@ push webhook 在 Git 模式下触发内容重载; 配置 `content.git_pull: true
 
 ```yaml
 media:
+  storage: local
   dir: media
   max_size: 8388608
+  oss:
+    endpoint: https://oss-cn-hangzhou.aliyuncs.com
+    bucket: my-bucket
+    public_base_url: https://cdn.example.com
+    path_prefix: media
+    acl: private
+    signed_url_ttl: 10m
 ```
 
 PG 模式允许 png/jpeg/gif/webp 和 wav/mp3/ogg/flac, 随机文件名, 文件内容通过 MIME 嗅探校验. Git 模式会把内容目录中的图片、视频和音频通过只读 `/media` 提供, 并在静态构建时复制到 `dist/media`; 允许 png/jpg/jpeg/gif/webp/avif/mp4/webm/wav/mp3/ogg/flac.
 Wwise/FMOD 的 `.bnk`/`.wem`/`.bank`/`.fsb` 不会被解析, 上传时会直接拒绝; 请先在游戏工具或导出流程中转成 wav/mp3/ogg/flac. `media.max_size` 同时限制图片和音频, 音频文件较大时需要调高这个值.
+
+`media.storage: oss` 会把 PG 上传和 PR 导入的媒体写入阿里云 OSS, 内容里的 `/media/<name>` 地址保持不变, 访问时由服务端跳转. OSS endpoint 必须使用 https, 避免 AccessKey 和媒体走明文.
+`acl: private` 使用带时效的签名 URL, `public-read` 使用公开 URL, `public-read-write` 也使用公开 URL 但允许匿名写入, 不建议在生产环境使用.
+引擎只给上传对象设置对象 ACL, 不会自动修改 bucket ACL; 需要匿名写入时必须由站长自行在 OSS 控制台配置 bucket ACL.
+`public_base_url` 填自定义域名或 CDN 地址; 留空时按 `bucket.endpoint` 推导, 使用内网 endpoint 时必须显式填写公开地址.
+AccessKey 通过 `OSS_ACCESS_KEY_ID` 和 `OSS_ACCESS_KEY_SECRET` 环境变量提供, 不要写进仓库.
+切换 `media.storage` 或修改 `OSS_ACL` 不会迁移或重设已有对象; ACL 只对新上传生效, 切换存储前需要手动迁移旧媒体.
+Git 模式的内容媒体仍然来自内容目录, OSS 只负责 PG 模式的上传媒体.
 
 ## 12 组件指令
 

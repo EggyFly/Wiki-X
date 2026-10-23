@@ -129,8 +129,21 @@ type GitHubConfig struct {
 }
 
 type MediaConfig struct {
-	Dir     string `yaml:"dir"`
-	MaxSize int64  `yaml:"max_size"`
+	Dir     string    `yaml:"dir"`
+	MaxSize int64     `yaml:"max_size"`
+	Storage string    `yaml:"storage"`
+	OSS     OSSConfig `yaml:"oss"`
+}
+
+type OSSConfig struct {
+	Endpoint        string `yaml:"endpoint"`
+	Bucket          string `yaml:"bucket"`
+	AccessKeyID     string `yaml:"access_key_id"`
+	AccessKeySecret string `yaml:"access_key_secret"`
+	PublicBaseURL   string `yaml:"public_base_url"`
+	PathPrefix      string `yaml:"path_prefix"`
+	ACL             string `yaml:"acl"`
+	SignedURLTTL    string `yaml:"signed_url_ttl"`
 }
 
 type CommentConfig struct {
@@ -268,6 +281,15 @@ func (c *Config) applyEnv() error {
 	if err := envInt64("MEDIA_MAX_SIZE", &c.Media.MaxSize); err != nil {
 		return err
 	}
+	envString("MEDIA_STORAGE", &c.Media.Storage)
+	envString("OSS_ENDPOINT", &c.Media.OSS.Endpoint)
+	envString("OSS_BUCKET", &c.Media.OSS.Bucket)
+	envString("OSS_ACCESS_KEY_ID", &c.Media.OSS.AccessKeyID)
+	envString("OSS_ACCESS_KEY_SECRET", &c.Media.OSS.AccessKeySecret)
+	envString("OSS_PUBLIC_BASE_URL", &c.Media.OSS.PublicBaseURL)
+	envString("OSS_PATH_PREFIX", &c.Media.OSS.PathPrefix)
+	envString("OSS_ACL", &c.Media.OSS.ACL)
+	envString("OSS_SIGNED_URL_TTL", &c.Media.OSS.SignedURLTTL)
 	if err := envBool("AUTH_SECURE_COOKIES", &c.Auth.SecureCookies); err != nil {
 		return err
 	}
@@ -569,6 +591,27 @@ func (c *Config) setDefault() {
 	if c.Media.MaxSize == 0 {
 		c.Media.MaxSize = 8 << 20
 	}
+	if c.Media.Storage == "" {
+		c.Media.Storage = "local"
+	}
+	if c.Media.OSS.PathPrefix == "" {
+		c.Media.OSS.PathPrefix = "media"
+	}
+	if c.Media.OSS.ACL == "" {
+		c.Media.OSS.ACL = "private"
+	}
+	if c.Media.OSS.SignedURLTTL == "" {
+		c.Media.OSS.SignedURLTTL = "10m"
+	}
+	c.Media.Storage = strings.ToLower(strings.TrimSpace(c.Media.Storage))
+	c.Media.OSS.Endpoint = strings.TrimSpace(c.Media.OSS.Endpoint)
+	c.Media.OSS.Bucket = strings.TrimSpace(c.Media.OSS.Bucket)
+	c.Media.OSS.AccessKeyID = strings.TrimSpace(c.Media.OSS.AccessKeyID)
+	c.Media.OSS.AccessKeySecret = strings.TrimSpace(c.Media.OSS.AccessKeySecret)
+	c.Media.OSS.PublicBaseURL = strings.TrimRight(strings.TrimSpace(c.Media.OSS.PublicBaseURL), "/")
+	c.Media.OSS.PathPrefix = strings.Trim(strings.TrimSpace(c.Media.OSS.PathPrefix), "/")
+	c.Media.OSS.ACL = strings.ToLower(strings.TrimSpace(c.Media.OSS.ACL))
+	c.Media.OSS.SignedURLTTL = strings.TrimSpace(c.Media.OSS.SignedURLTTL)
 	if c.Comment.RateLimit == 0 {
 		c.Comment.RateLimit = 5
 	}
@@ -824,6 +867,40 @@ func (c *Config) check() error {
 	if c.Media.MaxSize < 1 {
 		return fmt.Errorf("media.max_size must be positive")
 	}
+	switch c.Media.Storage {
+	case "local":
+	case "oss":
+		if c.Media.OSS.Endpoint == "" || c.Media.OSS.Bucket == "" || c.Media.OSS.AccessKeyID == "" || c.Media.OSS.AccessKeySecret == "" {
+			return fmt.Errorf("media.oss endpoint, bucket, access_key_id and access_key_secret are required")
+		}
+		endpoint, err := url.Parse(c.Media.OSS.Endpoint)
+		if err != nil || endpoint.Host == "" || endpoint.Scheme != "https" {
+			return fmt.Errorf("media.oss.endpoint must be a https url")
+		}
+		if !validOSSBucket(c.Media.OSS.Bucket) {
+			return fmt.Errorf("media.oss.bucket is invalid")
+		}
+		switch c.Media.OSS.ACL {
+		case "private", "public-read", "public-read-write":
+		default:
+			return fmt.Errorf("media.oss.acl must be private, public-read or public-read-write")
+		}
+		if c.Media.OSS.PublicBaseURL != "" {
+			publicURL, err := url.Parse(c.Media.OSS.PublicBaseURL)
+			if err != nil || publicURL.Host == "" || (publicURL.Scheme != "http" && publicURL.Scheme != "https") {
+				return fmt.Errorf("media.oss.public_base_url must be a http(s) url")
+			}
+		}
+		if strings.Contains(c.Media.OSS.PathPrefix, "..") || strings.Contains(c.Media.OSS.PathPrefix, "\\") {
+			return fmt.Errorf("media.oss.path_prefix is invalid")
+		}
+		ttl, err := time.ParseDuration(c.Media.OSS.SignedURLTTL)
+		if err != nil || ttl <= 0 || ttl > 7*24*time.Hour {
+			return fmt.Errorf("media.oss.signed_url_ttl must be between 0 and 168h")
+		}
+	default:
+		return fmt.Errorf("media.storage must be local or oss")
+	}
 	if (c.Mail.Host == "") != (c.Mail.From == "") {
 		return fmt.Errorf("mail.host and mail.from must be set together")
 	}
@@ -914,6 +991,19 @@ func (c *Config) check() error {
 func (c AuditConfig) RetentionDuration() time.Duration {
 	value, _ := time.ParseDuration(c.Retention)
 	return value
+}
+
+func validOSSBucket(value string) bool {
+	if len(value) < 3 || len(value) > 63 {
+		return false
+	}
+	for i, r := range value {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || (r == '-' && i > 0 && i < len(value)-1) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validGitURL(value string) bool {

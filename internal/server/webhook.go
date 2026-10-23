@@ -11,7 +11,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -186,7 +185,7 @@ func (a *App) importPullRequest(ctx context.Context, payload githubPullRequestPa
 		}
 		sum := sha256.Sum256(data)
 		name := "pr-" + hex.EncodeToString(sum[:])[:16] + ext
-		if err := a.saveImportedMedia(name, data); err != nil {
+		if err := a.saveImportedMedia(ctx, name, data); err != nil {
 			slog.Warn("save github media failed", "file", file.Filename, "err", err)
 			continue
 		}
@@ -331,33 +330,18 @@ func contentRelPath(filename, prefix string) (string, bool) {
 
 func mediaFileExt(ext string) bool {
 	switch strings.ToLower(ext) {
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".wav", ".mp3", ".ogg", ".flac":
 		return true
 	default:
 		return false
 	}
 }
 
-func (a *App) saveImportedMedia(name string, data []byte) error {
-	if err := os.MkdirAll(a.cfg.Media.Dir, 0o755); err != nil {
-		return err
+func (a *App) saveImportedMedia(ctx context.Context, name string, data []byte) error {
+	if a.mediaStore == nil {
+		return errors.New("media store is not configured")
 	}
-	target := filepath.Join(a.cfg.Media.Dir, name)
-	if _, err := os.Stat(target); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := out.Write(data); err != nil {
-		out.Close()
-		_ = os.Remove(target)
-		return err
-	}
-	return out.Close()
+	return a.mediaStore.Put(ctx, name, mediaContentType(name), data)
 }
 
 func uniqueMediaBasenames(media map[string]string) map[string]string {

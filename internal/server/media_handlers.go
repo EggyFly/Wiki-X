@@ -9,12 +9,12 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/EggyFly/Wiki-X/internal/auth"
+	mediastore "github.com/EggyFly/Wiki-X/internal/media"
 	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
@@ -89,39 +89,30 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "生成文件名失败"})
 		return
 	}
-	if err := os.MkdirAll(a.cfg.Media.Dir, 0o755); err != nil {
-		slog.Error("create media dir failed", "err", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存文件失败"})
+	if a.mediaStore == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "媒体存储未配置"})
 		return
 	}
-	target := filepath.Join(a.cfg.Media.Dir, name)
-	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存文件失败"})
-		return
-	}
-	if _, err := out.Write(data); err != nil {
-		out.Close()
-		_ = os.Remove(target)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存文件失败"})
-		return
-	}
-	if err := out.Close(); err != nil {
-		_ = os.Remove(target)
+	if err := a.mediaStore.Put(r.Context(), name, contentType, data); err != nil {
+		slog.Error("save media failed", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存文件失败"})
 		return
 	}
 	if _, err := a.store.CreateMedia(r.Context(), name, contentType, int64(len(data)), session.User.ID); err != nil {
-		_ = os.Remove(target)
+		_ = a.mediaStore.Delete(r.Context(), name)
 		slog.Error("create media record failed", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存文件失败"})
 		return
 	}
 
 	url := "/media/" + name
+	markdown := "![图片](" + url + ")"
+	if strings.HasPrefix(contentType, "audio/") {
+		markdown = "[音频](" + url + ")"
+	}
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"url":      url,
-		"markdown": "![图片](" + url + ")",
+		"markdown": markdown,
 	})
 }
 
@@ -184,7 +175,25 @@ func (a *App) handleUploadedMedia(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	file, err := os.Open(filepath.Join(a.cfg.Media.Dir, media.FileName))
+	if a.mediaStore == nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if target, err := a.mediaStore.URL(r.Context(), media.FileName); err != nil {
+		slog.Error("media url failed", "err", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	} else if target != "" {
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
+	local, ok := a.mediaStore.(*mediastore.Local)
+	if !ok {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	file, err := local.Open(media.FileName)
 	if err != nil {
 		http.NotFound(w, r)
 		return

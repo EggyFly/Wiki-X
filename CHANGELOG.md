@@ -16,6 +16,7 @@
 
 - 音频媒体: 上传和 Git 媒体支持 wav/mp3/ogg/flac, Range 播放, `wx-audio` 组件和编辑器工具栏
 - Wwise/FMOD bank 不做解析, 上传时拒绝 `.bnk`/`.wem`/`.bank`/`.fsb`, 要求先导出为网页音频格式
+- 阿里云 OSS 媒体存储: `media.storage: oss`, 私有签名 URL、public-read、public-read-write, 自定义公开域名和对象前缀
 
 ## 0.3.0 (2026-10-21)
 
@@ -63,7 +64,7 @@
 - 中文搜索仍依赖子串匹配, 大规模内容需要 zhparser 或 Meilisearch/Typesense
 - race detector 只在 CI 中运行, 本机 Windows 缺 gcc 未运行
 - GitHub OAuth/App 真实凭据流程未在本机验证, 使用 fake API 测试
-- renamed PR 文件、媒体删除同步、对象存储媒体尚未实现
+- renamed PR 文件、媒体删除同步、其他对象存储尚未实现
 
 ## 0.2.0-dev (2026-10-20 至 2026-10-21)
 

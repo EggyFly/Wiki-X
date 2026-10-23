@@ -17,6 +17,7 @@
 - 页面保护、监视列表、讨论页、评论限流、举报队列、页面软删除/恢复
 - 组件指令 `wx-infobox`/`wx-notice`/`wx-gallery`/`wx-collapse`/`wx-audio` 和结构化实体图鉴
 - PostgreSQL 全文搜索、进程内搜索和可选 Meilisearch
+- 本地或阿里云 OSS 媒体存储, 支持私有签名 URL、公共读和公共读写
 - 审计日志、NDJSON 归档、全局限流、Prometheus 指标
 - 内置 default/compact 两套皮肤, UI 中英文, 内容多语言路由
 - 前端压缩 + 内容哈希文件名, 生成物 embed 进二进制

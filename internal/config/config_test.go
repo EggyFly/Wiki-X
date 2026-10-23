@@ -274,6 +274,34 @@ func TestLoadGitContentConfig(t *testing.T) {
 	}
 }
 
+func TestLoadOSSMediaConfig(t *testing.T) {
+	path := writeConfig(t, "media:\n  storage: oss\n  oss:\n    endpoint: https://oss-cn-hangzhou.aliyuncs.com\n    bucket: my-bucket\n    access_key_id: test-id\n    access_key_secret: test-secret\n    public_base_url: https://cdn.example.com/\n    path_prefix: /media/\n    acl: public-read\n    signed_url_ttl: 5m\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Media.Storage != "oss" || cfg.Media.OSS.ACL != "public-read" || cfg.Media.OSS.PathPrefix != "media" {
+		t.Fatalf("media = %+v", cfg.Media)
+	}
+	if cfg.Media.OSS.PublicBaseURL != "https://cdn.example.com" || cfg.Media.OSS.SignedURLTTL != "5m" {
+		t.Fatalf("oss = %+v", cfg.Media.OSS)
+	}
+	for _, body := range []string{
+		"media:\n  storage: oss\n",
+		"media:\n  storage: oss\n  oss:\n    endpoint: https://oss.example.com\n    bucket: my-bucket\n    access_key_id: id\n    access_key_secret: secret\n    acl: public\n",
+		"media:\n  storage: oss\n  oss:\n    endpoint: ftp://oss.example.com\n    bucket: my-bucket\n    access_key_id: id\n    access_key_secret: secret\n",
+		"media:\n  storage: oss\n  oss:\n    endpoint: http://oss.example.com\n    bucket: my-bucket\n    access_key_id: id\n    access_key_secret: secret\n",
+		"media:\n  storage: oss\n  oss:\n    endpoint: https://oss.example.com\n    bucket: My_Bucket\n    access_key_id: id\n    access_key_secret: secret\n",
+		"media:\n  storage: oss\n  oss:\n    endpoint: https://oss.example.com\n    bucket: my-bucket\n    access_key_id: id\n    access_key_secret: secret\n    path_prefix: ../secret\n",
+		"media:\n  storage: oss\n  oss:\n    endpoint: https://oss.example.com\n    bucket: my-bucket\n    access_key_id: id\n    access_key_secret: secret\n    signed_url_ttl: 200h\n",
+	} {
+		path = writeConfig(t, body)
+		if _, err := Load(path); err == nil {
+			t.Fatalf("expected oss config error for %q", body)
+		}
+	}
+}
+
 func TestLoadRejectsUnknownField(t *testing.T) {
 	path := writeConfig(t, "site:\n  titel: typo\n")
 	if _, err := Load(path); err == nil {
