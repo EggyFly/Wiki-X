@@ -77,7 +77,7 @@ func main() {
 
 func runBuild(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("build", flag.ContinueOnError)
-	configPath := flags.String("config", "wikix.yaml", "path to config file")
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
 	outDir := flags.String("out", "dist", "output directory")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -106,6 +106,9 @@ func runBuild(ctx context.Context, args []string) error {
 		}
 		loaded, err = site.LoadWithSource(ctx, cfg, data)
 	} else {
+		if err := ensureGitContent(ctx, cfg, cfg.Content.Dir); err != nil {
+			return err
+		}
 		loaded, err = site.Load(ctx, cfg)
 	}
 	if err != nil {
@@ -122,7 +125,7 @@ func runBuild(ctx context.Context, args []string) error {
 
 func runServe(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
-	configPath := flags.String("config", "wikix.yaml", "path to config file")
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
 	addr := flags.String("addr", "", "listen address override")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -176,6 +179,9 @@ func runServe(ctx context.Context, args []string) error {
 		} else if cfg.GitHub.Token != "" || cfg.GitHub.AppID > 0 {
 			slog.Warn("github PR editing is disabled without database.url")
 		}
+		if err := ensureGitContent(ctx, cfg, cfg.Content.Dir); err != nil {
+			return err
+		}
 		loaded, err = site.Load(ctx, cfg)
 		if err != nil {
 			return err
@@ -211,7 +217,7 @@ func runServe(ctx context.Context, args []string) error {
 
 func runMigrate(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("migrate", flag.ContinueOnError)
-	configPath := flags.String("config", "wikix.yaml", "path to config file")
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -233,7 +239,7 @@ func runMigrate(ctx context.Context, args []string) error {
 
 func runImport(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("import", flag.ContinueOnError)
-	configPath := flags.String("config", "wikix.yaml", "path to config file")
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
 	contentDir := flags.String("content-dir", "", "git content directory override")
 	authorName := flags.String("author", "", "author user name")
 	if err := flags.Parse(args); err != nil {
@@ -255,6 +261,9 @@ func runImport(ctx context.Context, args []string) error {
 	dir := *contentDir
 	if dir == "" {
 		dir = cfg.Content.Dir
+	}
+	if err := ensureGitContent(ctx, cfg, dir); err != nil {
+		return err
 	}
 	source := gitsource.New(dir)
 	source.SetMaxFileSize(cfg.Content.MaxFileSize)
@@ -288,7 +297,7 @@ func runImport(ctx context.Context, args []string) error {
 
 func runWarm(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("warm", flag.ContinueOnError)
-	configPath := flags.String("config", "wikix.yaml", "path to config file")
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
 	skin := flags.String("skin", "", "skin to warm, empty uses theme.default")
 	concurrency := flags.Int("concurrency", 4, "parallel render workers")
 	if err := flags.Parse(args); err != nil {
@@ -313,6 +322,9 @@ func runWarm(ctx context.Context, args []string) error {
 		}
 		loaded, err = site.LoadWithSource(ctx, cfg, data)
 	} else {
+		if err := ensureGitContent(ctx, cfg, cfg.Content.Dir); err != nil {
+			return err
+		}
 		loaded, err = site.Load(ctx, cfg)
 	}
 	if err != nil {
@@ -337,10 +349,10 @@ func runWarm(ctx context.Context, args []string) error {
 
 func runSearch(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] != "reindex" {
-		return errors.New("usage: wikix search reindex [flags]")
+		return errors.New("usage: wiki_x search reindex [flags]")
 	}
 	flags := flag.NewFlagSet("search reindex", flag.ContinueOnError)
-	configPath := flags.String("config", "wikix.yaml", "path to config file")
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -389,7 +401,7 @@ func runSearch(ctx context.Context, args []string) error {
 
 func runUser(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: wikix user <create|grant> [flags]")
+		return errors.New("usage: wiki_x user <create|grant> [flags]")
 	}
 	switch args[0] {
 	case "create":
@@ -403,7 +415,7 @@ func runUser(ctx context.Context, args []string) error {
 
 func runUserCreate(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("user create", flag.ContinueOnError)
-	configPath := flags.String("config", "wikix.yaml", "path to config file")
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
 	name := flags.String("name", "", "user name")
 	email := flags.String("email", "", "email")
 	admin := flags.Bool("admin", false, "grant admin group")
@@ -448,7 +460,7 @@ func runUserCreate(ctx context.Context, args []string) error {
 
 func runUserGrant(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("user grant", flag.ContinueOnError)
-	configPath := flags.String("config", "wikix.yaml", "path to config file")
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
 	name := flags.String("name", "", "user name")
 	group := flags.String("group", "", "group: admin, editor, user")
 	if err := flags.Parse(args); err != nil {
@@ -480,10 +492,10 @@ func runUserGrant(ctx context.Context, args []string) error {
 
 func runAudit(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] != "archive" {
-		return errors.New("usage: wikix audit archive [flags]")
+		return errors.New("usage: wiki_x audit archive [flags]")
 	}
 	flags := flag.NewFlagSet("audit archive", flag.ContinueOnError)
-	configPath := flags.String("config", "wikix.yaml", "path to config file")
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -514,9 +526,16 @@ func runAudit(ctx context.Context, args []string) error {
 
 func openStore(ctx context.Context, cfg *config.Config) (*store.Store, error) {
 	if strings.TrimSpace(cfg.Database.URL) == "" {
-		return nil, errors.New("database.url is required, set it in config or WIKIX_DATABASE_URL")
+		return nil, errors.New("database.url is required, set it in config or DATABASE_URL")
 	}
 	return store.Open(ctx, cfg.Database)
+}
+
+func ensureGitContent(ctx context.Context, cfg *config.Config, dir string) error {
+	if strings.TrimSpace(cfg.Content.GitURL) == "" {
+		return nil
+	}
+	return gitsource.EnsureRepo(ctx, dir, cfg.Content.GitURL, cfg.Content.GitBranch, cfg.Content.GitDepth, cfg.Content.GitPull)
 }
 
 func gitPullFunc(dir string) func(context.Context) error {
@@ -531,5 +550,5 @@ func gitPullFunc(dir string) func(context.Context) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: wikix <build|serve|migrate|import|warm|user|audit|search|version> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: wiki_x <build|serve|migrate|import|warm|user|audit|search|version> [flags]")
 }

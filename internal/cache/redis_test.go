@@ -11,16 +11,16 @@ import (
 )
 
 func TestRedisCache(t *testing.T) {
-	addr := os.Getenv("WIKIX_TEST_REDIS_ADDR")
+	addr := os.Getenv("TEST_REDIS_ADDR")
 	if addr == "" {
-		t.Skip("set WIKIX_TEST_REDIS_ADDR to run redis integration test")
+		t.Skip("set TEST_REDIS_ADDR to run redis integration test")
 	}
-	prefix := fmt.Sprintf("wikix-test-%d", time.Now().UnixNano())
+	prefix := fmt.Sprintf("wiki_x-test-%d", time.Now().UnixNano())
 	c, err := New(Options{
 		Driver:        "redis",
 		TTL:           time.Minute,
 		RedisAddr:     addr,
-		RedisPassword: os.Getenv("WIKIX_TEST_REDIS_PASSWORD"),
+		RedisPassword: os.Getenv("TEST_REDIS_PASSWORD"),
 		RedisDB:       0,
 		RedisPrefix:   prefix,
 	})

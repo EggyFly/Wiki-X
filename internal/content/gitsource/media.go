@@ -16,6 +16,10 @@ var allowedMediaExt = map[string]bool{
 	".avif": true,
 	".mp4":  true,
 	".webm": true,
+	".wav":  true,
+	".mp3":  true,
+	".ogg":  true,
+	".flac": true,
 }
 
 type mediaFS struct {

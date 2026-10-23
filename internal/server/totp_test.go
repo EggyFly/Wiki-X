@@ -299,7 +299,7 @@ func TestVerifyPageAfterTicket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.AddCookie(&http.Cookie{Name: "wikix_totp_ticket", Value: ticket})
+	request.AddCookie(&http.Cookie{Name: "wiki_x_totp_ticket", Value: ticket})
 	page, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
@@ -343,7 +343,7 @@ func postVerifyForm(t *testing.T, client *http.Client, baseURL, csrf, ticket, co
 		t.Fatal(err)
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	request.AddCookie(&http.Cookie{Name: "wikix_totp_ticket", Value: ticket})
+	request.AddCookie(&http.Cookie{Name: "wiki_x_totp_ticket", Value: ticket})
 	response, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)

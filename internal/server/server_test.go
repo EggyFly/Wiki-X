@@ -175,7 +175,7 @@ func TestHandler(t *testing.T) {
 		}
 		found := false
 		for _, cookie := range res.Result().Cookies() {
-			if cookie.Name == "wikix_skin" && cookie.Value == "compact" {
+			if cookie.Name == "wiki_x_skin" && cookie.Value == "compact" {
 				found = true
 			}
 		}
@@ -185,7 +185,7 @@ func TestHandler(t *testing.T) {
 	})
 
 	t.Run("skin cookie changes assets", func(t *testing.T) {
-		res := request(handler, http.MethodGet, "/", map[string]string{"Cookie": "wikix_skin=compact"})
+		res := request(handler, http.MethodGet, "/", map[string]string{"Cookie": "wiki_x_skin=compact"})
 		if res.Code != http.StatusOK {
 			t.Fatalf("status = %d", res.Code)
 		}

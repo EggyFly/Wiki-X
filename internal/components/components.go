@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/url"
+	"path"
 	"strings"
 	"unicode/utf8"
 
@@ -48,6 +49,7 @@ var registry = map[string]componentFunc{
 	"notice":   renderNotice,
 	"gallery":  renderGallery,
 	"collapse": renderCollapse,
+	"audio":    renderAudio,
 }
 
 func Render(name string, body []byte) (template.HTML, error) {
@@ -369,6 +371,70 @@ var galleryTemplate = template.Must(template.New("gallery").Parse(
 	`<div class="wx-gallery">{{range .Images}}` +
 		`<figure class="wx-gallery-item"><img src="{{.Image}}" alt="{{.Caption}}">` +
 		`{{with .Caption}}<figcaption>{{.}}</figcaption>{{end}}</figure>{{end}}</div>`))
+
+func renderAudio(body []byte, lookup EntityLookup) (template.HTML, error) {
+	root, err := decodeNode(body)
+	if err != nil {
+		return "", err
+	}
+	var spec audioSpec
+	if err := decodeStrict(root, &spec); err != nil {
+		return "", err
+	}
+	if err := validateAudio(&spec); err != nil {
+		return "", err
+	}
+	var builder strings.Builder
+	if err := audioTemplate.Execute(&builder, spec); err != nil {
+		return "", err
+	}
+	return template.HTML(builder.String()), nil
+}
+
+type audioSpec struct {
+	Src     string `yaml:"src"`
+	Title   string `yaml:"title"`
+	Caption string `yaml:"caption"`
+}
+
+func validateAudio(spec *audioSpec) error {
+	if strings.TrimSpace(spec.Src) == "" {
+		return specError("src 不能为空")
+	}
+	if !validAudioPath(spec.Src) {
+		return specError("src 必须是站内 wav/mp3/ogg/flac 路径")
+	}
+	if utf8.RuneCountInString(spec.Title) > 200 {
+		return specError("title 不能超过 200 个字符")
+	}
+	if utf8.RuneCountInString(spec.Caption) > 200 {
+		return specError("caption 不能超过 200 个字符")
+	}
+	return nil
+}
+
+func validAudioPath(value string) bool {
+	if !validSitePath(value) {
+		return false
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(path.Ext(parsed.Path)) {
+	case ".wav", ".mp3", ".ogg", ".flac":
+		return true
+	default:
+		return false
+	}
+}
+
+var audioTemplate = template.Must(template.New("audio").Parse(
+	`<figure class="wx-audio">` +
+		`<audio controls preload="metadata" src="{{.Src}}">您的浏览器不支持音频播放.</audio>` +
+		`{{with .Title}}<figcaption class="wx-audio-title">{{.}}</figcaption>{{end}}` +
+		`{{with .Caption}}<figcaption class="wx-audio-caption">{{.}}</figcaption>{{end}}` +
+		`</figure>`))
 
 func renderCollapse(body []byte, lookup EntityLookup) (template.HTML, error) {
 	root, err := decodeNode(body)

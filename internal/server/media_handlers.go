@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,7 +18,26 @@ import (
 	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
-var mediaNamePattern = regexp.MustCompile(`^([a-f0-9]{32}|pr-[a-f0-9]{16})\.(png|jpg|gif|webp)$`)
+var mediaNamePattern = regexp.MustCompile(`^([a-f0-9]{32}|pr-[a-f0-9]{16})\.(png|jpg|gif|webp|wav|mp3|ogg|flac)$`)
+
+var mediaContentTypes = map[string]string{
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".avif": "image/avif",
+	".mp4":  "video/mp4",
+	".webm": "video/webm",
+	".wav":  "audio/wav",
+	".mp3":  "audio/mpeg",
+	".ogg":  "audio/ogg",
+	".flac": "audio/flac",
+}
+
+func mediaContentType(name string) string {
+	return mediaContentTypes[strings.ToLower(filepath.Ext(name))]
+}
 
 func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 	session, ok := a.requireRight(w, r, auth.RightUpload)
@@ -42,6 +60,11 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
+	switch strings.ToLower(filepath.Ext(header.Filename)) {
+	case ".bnk", ".wem", ".bank", ".fsb":
+		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "不支持 Wwise/FMOD bank 文件, 请先导出为 wav/mp3/ogg/flac"})
+		return
+	}
 	if header.Size > a.cfg.Media.MaxSize {
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "文件超过大小限制"})
 		return
@@ -57,7 +80,7 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	contentType, ext := detectMedia(data)
 	if ext == "" {
-		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "只支持 png, jpeg, gif, webp"})
+		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "只支持 png, jpeg, gif, webp, wav, mp3, ogg, flac"})
 		return
 	}
 
@@ -139,7 +162,7 @@ func (a *App) handleGitMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	if contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(name))); contentType != "" {
+	if contentType := mediaContentType(name); contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
 	http.ServeContent(w, r, name, info.ModTime(), seeker)
@@ -176,6 +199,21 @@ func (a *App) handleUploadedMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 func detectMedia(data []byte) (string, string) {
+	if len(data) >= 12 && (string(data[0:4]) == "RIFF" || string(data[0:4]) == "RF64") && string(data[8:12]) == "WAVE" {
+		return "audio/wav", ".wav"
+	}
+	if len(data) >= 4 && string(data[0:4]) == "fLaC" {
+		return "audio/flac", ".flac"
+	}
+	if len(data) >= 4 && string(data[0:4]) == "OggS" {
+		return "audio/ogg", ".ogg"
+	}
+	if len(data) >= 3 && string(data[0:3]) == "ID3" {
+		return "audio/mpeg", ".mp3"
+	}
+	if len(data) >= 2 && data[0] == 0xFF && data[1]&0xE0 == 0xE0 {
+		return "audio/mpeg", ".mp3"
+	}
 	contentType := http.DetectContentType(data)
 	ext := ""
 	switch contentType {

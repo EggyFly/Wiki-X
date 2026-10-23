@@ -135,7 +135,7 @@ func TestLoadRejectsPostgresUntilImplemented(t *testing.T) {
 }
 
 func TestCheckRoute(t *testing.T) {
-	for _, route := range []string{"/assets/", "/Assets/", "/404.html/", "/index.html/", "/.wikix-build.json/", "/bad&route/", "/con/", "/guide/trailing /"} {
+	for _, route := range []string{"/assets/", "/Assets/", "/404.html/", "/index.html/", "/.wiki_x-build.json/", "/bad&route/", "/con/", "/guide/trailing /"} {
 		if err := ValidateRoute(route); err == nil {
 			t.Fatalf("route %q should be rejected", route)
 		}

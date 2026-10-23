@@ -58,8 +58,8 @@ func TestMeilisearchBackend(t *testing.T) {
 	defer fake.Close()
 
 	app, _, _ := setupCommunityFixture(t, config.GitHubConfig{})
-	app.cfg.Search = config.SearchConfig{Backend: "meilisearch", URL: fake.URL, APIKey: "key", Index: "wikix"}
-	app.searchClient = search.NewClient(fake.URL, "key", "wikix")
+	app.cfg.Search = config.SearchConfig{Backend: "meilisearch", URL: fake.URL, APIKey: "key", Index: "wiki_x"}
+	app.searchClient = search.NewClient(fake.URL, "key", "wiki_x")
 	server := httptest.NewServer(app.Handler())
 	t.Cleanup(server.Close)
 

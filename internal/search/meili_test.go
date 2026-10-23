@@ -20,7 +20,7 @@ func TestMeilisearchClient(t *testing.T) {
 			return
 		}
 		switch {
-		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/indexes/wikix/search"):
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/indexes/wiki_x/search"):
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"hits": []map[string]any{{
@@ -58,7 +58,7 @@ func TestMeilisearchClient(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "wikix")
+	client := NewClient(server.URL, "test-key", "wiki_x")
 	hits, err := client.Search(context.Background(), "guide", 10)
 	if err != nil || len(hits) != 1 || hits[0].Route != "/guide/" || !strings.Contains(hits[0].Snippet, "body") {
 		t.Fatalf("hits = %+v, %v", hits, err)
@@ -88,7 +88,7 @@ func TestMeilisearchErrors(t *testing.T) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 	defer server.Close()
-	client := NewClient(server.URL, "", "wikix")
+	client := NewClient(server.URL, "", "wiki_x")
 	if _, err := client.Search(context.Background(), "x", 5); err == nil {
 		t.Fatal("expected error")
 	}
@@ -105,7 +105,7 @@ func TestDocumentIDAndValidation(t *testing.T) {
 	if DocumentID("/guide/") != id {
 		t.Fatal("document id should be stable")
 	}
-	if !ValidIndexName("wikix_test-1") || ValidIndexName("bad/index") || ValidIndexName("") {
+	if !ValidIndexName("wiki_x_test-1") || ValidIndexName("bad/index") || ValidIndexName("") {
 		t.Fatal("index validation failed")
 	}
 	if !ValidBaseURL("http://127.0.0.1:7700") || ValidBaseURL("ftp://x") {

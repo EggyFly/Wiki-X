@@ -680,9 +680,9 @@ func TestPublishStaleRevisionConflicts(t *testing.T) {
 
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
-	url := os.Getenv("WIKIX_TEST_POSTGRES_URL")
+	url := os.Getenv("TEST_POSTGRES_URL")
 	if url == "" {
-		t.Skip("set WIKIX_TEST_POSTGRES_URL to run postgres integration tests")
+		t.Skip("set TEST_POSTGRES_URL to run postgres integration tests")
 	}
 	ctx := context.Background()
 	s, err := Open(ctx, config.DatabaseConfig{URL: url, MaxConns: 4})

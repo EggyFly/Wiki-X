@@ -38,7 +38,7 @@ func TestLoadDefaultsAndPaths(t *testing.T) {
 	if cfg.Cache.MaxEntries != 2000 || cfg.Cache.MaxBytes != 64<<20 {
 		t.Fatalf("cache limits = %+v", cfg.Cache)
 	}
-	if cfg.Cache.Redis.Prefix != "wikix" {
+	if cfg.Cache.Redis.Prefix != "wiki_x" {
 		t.Fatalf("redis prefix = %q", cfg.Cache.Redis.Prefix)
 	}
 	if cfg.Comment.RateLimit != 5 || cfg.Comment.RateWindow != "1m" {
@@ -204,9 +204,9 @@ func TestLoadSearchConfig(t *testing.T) {
 	if _, err := Load(path); err == nil {
 		t.Fatal("meilisearch should require url")
 	}
-	path = writeConfig(t, "content:\n  source: postgres\ndatabase:\n  url: postgres://x\nsearch:\n  backend: meilisearch\n  url: http://127.0.0.1:7700\n  index: wikix\n")
+	path = writeConfig(t, "content:\n  source: postgres\ndatabase:\n  url: postgres://x\nsearch:\n  backend: meilisearch\n  url: http://127.0.0.1:7700\n  index: wiki_x\n")
 	cfg, err = Load(path)
-	if err != nil || cfg.Search.Index != "wikix" {
+	if err != nil || cfg.Search.Index != "wiki_x" {
 		t.Fatalf("meilisearch config = %+v, %v", cfg.Search, err)
 	}
 	path = writeConfig(t, "content:\n  source: postgres\ndatabase:\n  url: postgres://x\nsearch:\n  backend: meilisearch\n  url: http://127.0.0.1:7700\n  index: bad/index\n")
@@ -232,6 +232,45 @@ func TestLoadMetricsConfig(t *testing.T) {
 	path = writeConfig(t, "metrics:\n  enabled: true\n  path: /assets/\n")
 	if _, err := Load(path); err == nil {
 		t.Fatal("reserved metrics path should fail")
+	}
+}
+
+func TestLoadGitContentConfig(t *testing.T) {
+	path := writeConfig(t, "content:\n  source: git\n  git_url: https://example.com/wiki.git\n  git_branch: dev\n  git_depth: 1\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Content.GitURL != "https://example.com/wiki.git" || cfg.Content.GitBranch != "dev" || cfg.Content.GitDepth != 1 {
+		t.Fatalf("content = %+v", cfg.Content)
+	}
+	path = writeConfig(t, "content:\n  source: git\n  git_url: git@example.com:owner/repo.git\n")
+	if _, err := Load(path); err != nil {
+		t.Fatal(err)
+	}
+	path = writeConfig(t, "content:\n  source: git\n  git_url: https://example.com/wiki.git\n")
+	cfg, err = Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Content.GitBranch != "" {
+		t.Fatalf("empty branch should keep remote default, got %q", cfg.Content.GitBranch)
+	}
+	for _, body := range []string{
+		"content:\n  source: git\n  git_url: ftp://example.com/repo.git\n",
+		"content:\n  source: git\n  git_url: ssh://-oProxyCommand=calc/repo.git\n",
+		"content:\n  source: git\n  git_url: git@-oProxyCommand=calc:repo.git\n",
+		"content:\n  source: git\n  git_url: https://example.com/wiki.git\n  git_branch: bad branch\n",
+		"content:\n  source: git\n  git_url: https://example.com/wiki.git\n  git_depth: -1\n",
+	} {
+		path = writeConfig(t, body)
+		if _, err := Load(path); err == nil {
+			t.Fatalf("expected git content error for %q", body)
+		}
+	}
+	path = writeConfig(t, "content:\n  source: postgres\n  git_url: https://example.com/wiki.git\ndatabase:\n  url: postgres://x\n")
+	if _, err := Load(path); err != nil {
+		t.Fatalf("postgres import source should accept git_url: %v", err)
 	}
 }
 
@@ -342,10 +381,10 @@ func TestLoadRejectsBadLocales(t *testing.T) {
 }
 
 func TestLoadAppliesEnvOverrides(t *testing.T) {
-	t.Setenv("WIKIX_SERVER_ADDR", "127.0.0.1:9090")
-	t.Setenv("WIKIX_REDIS_ADDR", "127.0.0.1:6380")
-	t.Setenv("WIKIX_REDIS_PASSWORD", "secret")
-	t.Setenv("WIKIX_REDIS_DB", "2")
+	t.Setenv("SERVER_ADDR", "127.0.0.1:9090")
+	t.Setenv("REDIS_ADDR", "127.0.0.1:6380")
+	t.Setenv("REDIS_PASSWORD", "secret")
+	t.Setenv("REDIS_DB", "2")
 
 	path := writeConfig(t, "cache:\n  driver: auto\n")
 	cfg, err := Load(path)
@@ -361,7 +400,7 @@ func TestLoadAppliesEnvOverrides(t *testing.T) {
 }
 
 func TestLoadRejectsBadRedisDBEnv(t *testing.T) {
-	t.Setenv("WIKIX_REDIS_DB", "abc")
+	t.Setenv("REDIS_DB", "abc")
 	path := writeConfig(t, "site:\n  title: Test\n")
 	if _, err := Load(path); err == nil {
 		t.Fatal("expected redis db env error")
@@ -370,7 +409,7 @@ func TestLoadRejectsBadRedisDBEnv(t *testing.T) {
 
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "wikix.yaml")
+	path := filepath.Join(t.TempDir(), "wiki_x.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}

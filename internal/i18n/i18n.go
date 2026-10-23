@@ -289,7 +289,7 @@ var zhCN = map[string]string{
 	"username":     "用户名",
 	"password":     "密码",
 	"login_button": "登录",
-	"no_users":     "还没有站内账号. 请先运行 wikix user create 创建管理员.",
+	"no_users":     "还没有站内账号. 请先运行 wiki_x user create 创建管理员.",
 	"or":           "或",
 	"github_login": "使用 GitHub 登录",
 
@@ -332,6 +332,7 @@ var zhCN = map[string]string{
 	"md_notice":              "提示",
 	"md_gallery":             "画廊",
 	"md_collapse":            "折叠",
+	"md_audio":               "音频",
 	"preview":                "预览",
 	"preview_loading":        "预览加载中",
 	"close_preview":          "关闭预览",
@@ -700,7 +701,7 @@ var en = map[string]string{
 	"username":     "Username",
 	"password":     "Password",
 	"login_button": "Log in",
-	"no_users":     "No accounts yet. Run wikix user create to create an administrator.",
+	"no_users":     "No accounts yet. Run wiki_x user create to create an administrator.",
 	"or":           "or",
 	"github_login": "Log in with GitHub",
 
@@ -743,6 +744,7 @@ var en = map[string]string{
 	"md_notice":              "Notice",
 	"md_gallery":             "Gallery",
 	"md_collapse":            "Collapse",
+	"md_audio":               "Audio",
 	"preview":                "Preview",
 	"preview_loading":        "Loading preview",
 	"close_preview":          "Close preview",

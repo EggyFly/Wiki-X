@@ -140,6 +140,52 @@ func TestGalleryEscapesCaption(t *testing.T) {
 	}
 }
 
+func TestRenderAudio(t *testing.T) {
+	html, err := Render("audio", []byte("src: /media/theme.mp3\ntitle: 主题曲\ncaption: 活动版本"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`class="wx-audio"`,
+		`controls`,
+		`preload="metadata"`,
+		`src="/media/theme.mp3"`,
+		`class="wx-audio-title">主题曲<`,
+		`class="wx-audio-caption">活动版本<`,
+	} {
+		if !strings.Contains(string(html), want) {
+			t.Fatalf("audio missing %q in %s", want, html)
+		}
+	}
+}
+
+func TestAudioValidation(t *testing.T) {
+	cases := map[string][]byte{
+		"missing src":      []byte("title: x"),
+		"external src":     []byte("src: https://evil/a.mp3"),
+		"bad extension":    []byte("src: /media/a.exe"),
+		"traversal src":    []byte("src: /media/../a.mp3"),
+		"unknown field":    []byte("src: /media/a.mp3\nnope: 1"),
+		"title too long":   []byte("src: /media/a.mp3\ntitle: " + strings.Repeat("x", 201)),
+		"caption too long": []byte("src: /media/a.mp3\ncaption: " + strings.Repeat("x", 201)),
+	}
+	for name, body := range cases {
+		if _, err := Render("audio", body); !errors.Is(err, ErrInvalidSpec) {
+			t.Fatalf("%s: err = %v", name, err)
+		}
+	}
+}
+
+func TestAudioEscapesTitle(t *testing.T) {
+	html, err := Render("audio", []byte("src: /media/a.ogg\ntitle: <script>alert(1)</script>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(html), "<script>") {
+		t.Fatalf("raw title leaked: %s", html)
+	}
+}
+
 func TestRenderCollapse(t *testing.T) {
 	html, err := Render("collapse", []byte("items:\n  - title: 问题\n    text: 答案\n  - title: 另一个\n    text: 内容"))
 	if err != nil {

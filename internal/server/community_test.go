@@ -137,7 +137,7 @@ func TestCommunityFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	uploadResp := uploadTestFile(t, admin, baseURL, adminCSRF, png)
+	uploadResp := uploadTestFile(t, admin, baseURL, adminCSRF, "test.png", png)
 	if uploadResp.StatusCode != http.StatusCreated {
 		t.Fatalf("upload status = %d", uploadResp.StatusCode)
 	}
@@ -159,6 +159,32 @@ func TestCommunityFlow(t *testing.T) {
 		t.Fatalf("media content type = %q", mediaResp.Header.Get("Content-Type"))
 	}
 	mediaResp.Body.Close()
+
+	audioResp := uploadTestFile(t, admin, baseURL, adminCSRF, "test.mp3", []byte("ID3\x04\x00\x00\x00\x00\x00\x00"))
+	if audioResp.StatusCode != http.StatusCreated {
+		t.Fatalf("audio upload status = %d", audioResp.StatusCode)
+	}
+	var uploadedAudio struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(audioResp.Body).Decode(&uploadedAudio); err != nil {
+		t.Fatal(err)
+	}
+	audioResp.Body.Close()
+	if !strings.HasSuffix(uploadedAudio.URL, ".mp3") {
+		t.Fatalf("audio url = %q", uploadedAudio.URL)
+	}
+	audioMediaResp := mustGet(t, testHTTPClient(), baseURL+uploadedAudio.URL)
+	if audioMediaResp.StatusCode != http.StatusOK || audioMediaResp.Header.Get("Content-Type") != "audio/mpeg" {
+		t.Fatalf("audio media = %d, %q", audioMediaResp.StatusCode, audioMediaResp.Header.Get("Content-Type"))
+	}
+	audioMediaResp.Body.Close()
+
+	bankResp := uploadTestFile(t, admin, baseURL, adminCSRF, "test.bnk", []byte("BKHD\x00\x00\x00\x00"))
+	if bankResp.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("bank upload status = %d", bankResp.StatusCode)
+	}
+	bankResp.Body.Close()
 
 	accountResp := mustGet(t, admin, baseURL+"/account")
 	if accountResp.StatusCode != http.StatusOK {
@@ -1129,9 +1155,9 @@ func setupCommunityAppWithComment(t *testing.T, commentCfg config.CommentConfig)
 
 func setupCommunityFixture(t *testing.T, ghConfig config.GitHubConfig) (*App, *store.Store, *site.Site) {
 	t.Helper()
-	databaseURL := os.Getenv("WIKIX_TEST_POSTGRES_URL_SERVER")
+	databaseURL := os.Getenv("TEST_POSTGRES_URL_SERVER")
 	if databaseURL == "" {
-		t.Skip("set WIKIX_TEST_POSTGRES_URL_SERVER to run server integration tests")
+		t.Skip("set TEST_POSTGRES_URL_SERVER to run server integration tests")
 	}
 	ctx := context.Background()
 	data, err := store.Open(ctx, config.DatabaseConfig{URL: databaseURL, MaxConns: 4})
@@ -1415,11 +1441,11 @@ func postForm(t *testing.T, client *http.Client, target string, form url.Values)
 	return resp
 }
 
-func uploadTestFile(t *testing.T, client *http.Client, baseURL, csrf string, data []byte) *http.Response {
+func uploadTestFile(t *testing.T, client *http.Client, baseURL, csrf, name string, data []byte) *http.Response {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("file", "test.png")
+	part, err := writer.CreateFormFile("file", name)
 	if err != nil {
 		t.Fatal(err)
 	}

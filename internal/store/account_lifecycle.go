@@ -15,7 +15,7 @@ func (s *Store) DeleteUser(ctx context.Context, userID, actorID int64, reason st
 		return "", err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('wikix_user_admin')::bigint)`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('wiki_x_user_admin')::bigint)`); err != nil {
 		return "", err
 	}
 	var name string

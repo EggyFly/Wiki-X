@@ -18,6 +18,10 @@ site:
 content:
   source: git
   dir: content
+  git_url: ""            # 留空只使用本地目录; 填写后目录缺失时自动克隆
+  git_branch: main       # 克隆时使用的分支, 留空使用远端默认分支
+  git_depth: 0           # 0 为完整克隆, 大于 0 为浅克隆深度
+  git_pull: false        # 启动和收到 push webhook 时执行 git pull --ff-only
   max_file_size: 1048576
   reload_interval: 0s
 server:
@@ -32,7 +36,7 @@ cache:
     addr: ""
     password: ""
     db: 0
-    prefix: wikix-example
+    prefix: wiki_x-example
 comment:
   rate_limit: 5
   rate_window: 1m

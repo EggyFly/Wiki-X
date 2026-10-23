@@ -9,6 +9,7 @@ func TestMediaFS(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "index.md", "---\ntitle: Home\n---\n\nBody\n")
 	writeFile(t, root, "images/a.png", "png")
+	writeFile(t, root, "audio/theme.mp3", "mp3")
 	writeFile(t, root, "images/note.md", "not media")
 	writeFile(t, root, ".hidden.png", "hidden")
 
@@ -18,6 +19,11 @@ func TestMediaFS(t *testing.T) {
 		t.Fatal(err)
 	}
 	file.Close()
+	audio, err := media.Open("audio/theme.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	audio.Close()
 
 	for _, name := range []string{"index.md", "images/note.md", ".hidden.png", "../outside.png"} {
 		if _, err := media.Open(name); err == nil {
@@ -37,7 +43,7 @@ func TestMediaFS(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
+	if count != 2 {
 		t.Fatalf("media files = %d", count)
 	}
 }

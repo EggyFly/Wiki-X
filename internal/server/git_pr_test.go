@@ -21,9 +21,9 @@ import (
 )
 
 func TestGitModeCreatesPullRequest(t *testing.T) {
-	databaseURL := os.Getenv("WIKIX_TEST_POSTGRES_URL_SERVER")
+	databaseURL := os.Getenv("TEST_POSTGRES_URL_SERVER")
 	if databaseURL == "" {
-		t.Skip("set WIKIX_TEST_POSTGRES_URL_SERVER to run server integration tests")
+		t.Skip("set TEST_POSTGRES_URL_SERVER to run server integration tests")
 	}
 	ctx := context.Background()
 	data, err := store.Open(ctx, config.DatabaseConfig{URL: databaseURL, MaxConns: 4})

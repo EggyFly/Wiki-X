@@ -30,10 +30,10 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     env:
-      WIKIX_TEST_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/wikix_test?sslmode=disable
-      WIKIX_TEST_POSTGRES_URL_SERVER: postgres://postgres:postgres@127.0.0.1:5432/wikix_test_server?sslmode=disable
-      WIKIX_TEST_POSTGRES_URL_AUDIT: postgres://postgres:postgres@127.0.0.1:5432/wikix_test_audit?sslmode=disable
-      WIKIX_TEST_REDIS_ADDR: 127.0.0.1:6379
+      TEST_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/wiki_x_test?sslmode=disable
+      TEST_POSTGRES_URL_SERVER: postgres://postgres:postgres@127.0.0.1:5432/wiki_x_test_server?sslmode=disable
+      TEST_POSTGRES_URL_AUDIT: postgres://postgres:postgres@127.0.0.1:5432/wiki_x_test_audit?sslmode=disable
+      TEST_REDIS_ADDR: 127.0.0.1:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -52,10 +52,10 @@ jobs:
         run: go vet ./...
       - name: Create test databases
         run: |
-          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wikix_test"
-          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wikix_test_server"
-          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wikix_test_audit"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wiki_x_test"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wiki_x_test_server"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wiki_x_test_audit"
       - name: Test
         run: go test -race -count=1 ./...
       - name: Check frontend JavaScript
-        run: node --check internal/server/ui/assets/app.js
+        run: node --check web/ui/app.js

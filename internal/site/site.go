@@ -873,7 +873,7 @@ func checkRoute(route string) error {
 	segments := strings.Split(strings.Trim(route, "/"), "/")
 	first := segments[0]
 	switch strings.ToLower(first) {
-	case "assets", "404.html", "index.html", ".wikix-build.json":
+	case "assets", "404.html", "index.html", ".wiki_x-build.json":
 		return fmt.Errorf("route %q uses a reserved path", route)
 	}
 	for _, segment := range segments {

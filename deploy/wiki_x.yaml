@@ -19,7 +19,7 @@ cache:
     addr: redis:6379
     password: ""
     db: 0
-    prefix: wikix-compose
+    prefix: wiki_x-compose
 database:
   url: ""
   max_conns: 10

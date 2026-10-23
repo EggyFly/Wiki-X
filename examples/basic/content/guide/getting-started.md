@@ -11,7 +11,7 @@ tags:
 在仓库根目录执行:
 
 ```bash
-go run ./cmd/wikix serve -config examples/basic/wikix.yaml
+go run ./cmd/wiki_x serve -config examples/basic/wiki_x.yaml
 ```
 
 打开 `http://localhost:8080` 就能看到当前页面. 需要自动同步内容时配置 `content.reload_interval`, 或者用 GitHub webhook 触发重载.
@@ -19,10 +19,10 @@ go run ./cmd/wikix serve -config examples/basic/wikix.yaml
 生成静态文件:
 
 ```bash
-go run ./cmd/wikix build -config examples/basic/wikix.yaml -out dist
+go run ./cmd/wiki_x build -config examples/basic/wiki_x.yaml -out dist
 ```
 
-输出目录会包含每个页面的 `index.html`, `404.html`, 主题资源, 以及一份 `.wikix-build.json`. 这份清单只用于清理上一次构建产生, 这次不再需要的文件, 不会删除目录里的其他内容.
+输出目录会包含每个页面的 `index.html`, `404.html`, 主题资源, 以及一份 `.wiki_x-build.json`. 这份清单只用于清理上一次构建产生, 这次不再需要的文件, 不会删除目录里的其他内容.
 
 ## 文件与路由
 
@@ -100,7 +100,7 @@ cache:
     prefix: my-wiki
 ```
 
-每个站点要使用独立的 `prefix`. 敏感配置可以用 `WIKIX_REDIS_ADDR`, `WIKIX_REDIS_PASSWORD`, `WIKIX_REDIS_DB` 环境变量覆盖.
+每个站点要使用独立的 `prefix`. 敏感配置可以用 `REDIS_ADDR`, `REDIS_PASSWORD`, `REDIS_DB` 环境变量覆盖.
 
 页面响应带 `ETag`, `Cache-Control` 和 gzip. 配置 CDN 时可以用 `s-maxage` 和 `stale-while-revalidate` 降低回源压力.
 
@@ -120,10 +120,10 @@ content:
 社区模式以 PostgreSQL 为权威内容源, 需要先设置数据库连接:
 
 ```bash
-export WIKIX_DATABASE_URL='postgres://postgres:password@127.0.0.1:5432/wikix_dev?sslmode=disable'
-go run ./cmd/wikix migrate -config examples/community/wikix.yaml
-go run ./cmd/wikix import  -config examples/community/wikix.yaml
-go run ./cmd/wikix serve   -config examples/community/wikix.yaml
+export DATABASE_URL='postgres://postgres:password@127.0.0.1:5432/wiki_x_dev?sslmode=disable'
+go run ./cmd/wiki_x migrate -config examples/community/wiki_x.yaml
+go run ./cmd/wiki_x import  -config examples/community/wiki_x.yaml
+go run ./cmd/wiki_x serve   -config examples/community/wiki_x.yaml
 ```
 
 `import` 把 Git 内容单向导入数据库, 之后不再和 Git 双向同步. `migrate` 是幂等的, 也可以在配置里打开 `database.auto_migrate`.
@@ -133,9 +133,9 @@ go run ./cmd/wikix serve   -config examples/community/wikix.yaml
 站内账号通过 CLI 创建, 密码从 stdin 读取:
 
 ```bash
-printf 'change-me-please\n' | go run ./cmd/wikix user create -config examples/community/wikix.yaml -name admin -admin
-printf 'editor-password\n'  | go run ./cmd/wikix user create -config examples/community/wikix.yaml -name editor
-go run ./cmd/wikix user grant -config examples/community/wikix.yaml -name editor -group editor
+printf 'change-me-please\n' | go run ./cmd/wiki_x user create -config examples/community/wiki_x.yaml -name admin -admin
+printf 'editor-password\n'  | go run ./cmd/wiki_x user create -config examples/community/wiki_x.yaml -name editor
+go run ./cmd/wiki_x user grant -config examples/community/wiki_x.yaml -name editor -group editor
 ```
 
 - 权限组: `admin`, `editor`, `user`
@@ -163,9 +163,9 @@ GitHub 登录和 GitHub 仓库写入是两条独立链路. 仓库写入建议使
 可以使用 GitHub App, 也可以使用只授权内容仓库的 fine-grained PAT:
 
 ```bash
-export WIKIX_GITHUB_APP_ID='123'
-export WIKIX_GITHUB_INSTALLATION_ID='456'
-export WIKIX_GITHUB_PRIVATE_KEY_FILE='/secure/github-app.pem'
+export GITHUB_APP_ID='123'
+export GITHUB_INSTALLATION_ID='456'
+export GITHUB_PRIVATE_KEY_FILE='/secure/github-app.pem'
 ```
 
 ```yaml

@@ -63,6 +63,9 @@ type ContentConfig struct {
 	MaxFileSize    int64  `yaml:"max_file_size"`
 	ReloadInterval string `yaml:"reload_interval"`
 	GitPull        bool   `yaml:"git_pull"`
+	GitURL         string `yaml:"git_url"`
+	GitBranch      string `yaml:"git_branch"`
+	GitDepth       int    `yaml:"git_depth"`
 }
 
 type ThemeConfig struct {
@@ -178,6 +181,11 @@ type MetricsConfig struct {
 }
 
 func Load(path string) (*Config, error) {
+	envKeys, err := loadDotEnv(path)
+	if err != nil {
+		return nil, err
+	}
+	defer restoreEnv(envKeys)
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open config %s: %w", path, err)
@@ -194,10 +202,10 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
 
-	cfg.setDefault()
 	if err := cfg.applyEnv(); err != nil {
 		return nil, err
 	}
+	cfg.setDefault()
 	cfg.resolvePaths(filepath.Dir(path))
 	if cfg.Auth.GitHub.RedirectURL == "" && cfg.Auth.GitHubEnabled() && cfg.Site.BaseURL != "" {
 		cfg.Auth.GitHub.RedirectURL = cfg.Site.BaseURL + "/auth/github/callback"
@@ -209,169 +217,295 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyEnv() error {
-	if value := strings.TrimSpace(os.Getenv("WIKIX_SERVER_ADDR")); value != "" {
-		c.Server.Addr = value
+	envString("SITE_TITLE", &c.Site.Title)
+	envString("SITE_DESCRIPTION", &c.Site.Description)
+	envString("SITE_BASE_URL", &c.Site.BaseURL)
+	envString("SITE_LANGUAGE", &c.Site.Language)
+	if err := envBool("SITE_COMMUNITY_UI", &c.Site.CommunityUI); err != nil {
+		return err
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_REDIS_ADDR")); value != "" {
+	envString("CONTENT_SOURCE", &c.Content.Source)
+	envString("CONTENT_DIR", &c.Content.Dir)
+	envString("CONTENT_RELOAD_INTERVAL", &c.Content.ReloadInterval)
+	if err := envInt64("CONTENT_MAX_FILE_SIZE", &c.Content.MaxFileSize); err != nil {
+		return err
+	}
+	if err := envBool("CONTENT_GIT_PULL", &c.Content.GitPull); err != nil {
+		return err
+	}
+	envString("CONTENT_GIT_URL", &c.Content.GitURL)
+	envString("CONTENT_GIT_BRANCH", &c.Content.GitBranch)
+	if err := envInt("CONTENT_GIT_DEPTH", &c.Content.GitDepth); err != nil {
+		return err
+	}
+	envString("THEME_DIR", &c.Theme.Dir)
+	envString("THEME_ROOT", &c.Theme.Root)
+	envString("THEME_DEFAULT", &c.Theme.Default)
+	if err := envBool("THEME_DISABLE_SWITCH", &c.Theme.DisableSwitch); err != nil {
+		return err
+	}
+	envString("SERVER_ADDR", &c.Server.Addr)
+	if err := envBool("SERVER_ACCESS_LOG", &c.Server.AccessLog); err != nil {
+		return err
+	}
+	envString("CACHE_DRIVER", &c.Cache.Driver)
+	envString("CACHE_TTL", &c.Cache.TTL)
+	if err := envInt("CACHE_MAX_ENTRIES", &c.Cache.MaxEntries); err != nil {
+		return err
+	}
+	if err := envInt64("CACHE_MAX_BYTES", &c.Cache.MaxBytes); err != nil {
+		return err
+	}
+	envString("REDIS_PREFIX", &c.Cache.Redis.Prefix)
+	envString("DATABASE_URL", &c.Database.URL)
+	if err := envInt32("DATABASE_MAX_CONNS", &c.Database.MaxConns); err != nil {
+		return err
+	}
+	if err := envBool("DATABASE_AUTO_MIGRATE", &c.Database.AutoMigrate); err != nil {
+		return err
+	}
+	envString("MEDIA_DIR", &c.Media.Dir)
+	if err := envInt64("MEDIA_MAX_SIZE", &c.Media.MaxSize); err != nil {
+		return err
+	}
+	if err := envBool("AUTH_SECURE_COOKIES", &c.Auth.SecureCookies); err != nil {
+		return err
+	}
+	envString("AUTH_SESSION_TTL", &c.Auth.SessionTTL)
+	if value, ok := os.LookupEnv("AUTH_TRUSTED_PROXIES"); ok {
+		c.Auth.TrustedProxies = splitEnvList(value)
+	}
+	if err := envInt("COMMENT_RATE_LIMIT", &c.Comment.RateLimit); err != nil {
+		return err
+	}
+	envString("COMMENT_RATE_WINDOW", &c.Comment.RateWindow)
+	if value := strings.TrimSpace(os.Getenv("REDIS_ADDR")); value != "" {
 		c.Cache.Redis.Addr = value
 	}
-	if value, ok := os.LookupEnv("WIKIX_REDIS_PASSWORD"); ok {
+	if value, ok := os.LookupEnv("REDIS_PASSWORD"); ok {
 		c.Cache.Redis.Password = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_REDIS_DB")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("REDIS_DB")); value != "" {
 		db, err := strconv.Atoi(value)
 		if err != nil {
-			return fmt.Errorf("WIKIX_REDIS_DB: %w", err)
+			return fmt.Errorf("REDIS_DB: %w", err)
 		}
 		c.Cache.Redis.DB = db
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_DATABASE_URL")); value != "" {
-		c.Database.URL = value
-	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_GITHUB_CLIENT_ID")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("GITHUB_CLIENT_ID")); value != "" {
 		c.Auth.GitHub.ClientID = value
 	}
-	if value, ok := os.LookupEnv("WIKIX_GITHUB_CLIENT_SECRET"); ok {
+	if value, ok := os.LookupEnv("GITHUB_CLIENT_SECRET"); ok {
 		c.Auth.GitHub.ClientSecret = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_GITHUB_REDIRECT_URL")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("GITHUB_REDIRECT_URL")); value != "" {
 		c.Auth.GitHub.RedirectURL = value
 	}
-	if value, ok := os.LookupEnv("WIKIX_GITHUB_WEBHOOK_SECRET"); ok {
+	if value, ok := os.LookupEnv("GITHUB_WEBHOOK_SECRET"); ok {
 		c.GitHub.WebhookSecret = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_GITHUB_REPO")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("GITHUB_REPO")); value != "" {
 		c.GitHub.Repo = value
 	}
-	if value, ok := os.LookupEnv("WIKIX_GITHUB_TOKEN"); ok {
+	if value, ok := os.LookupEnv("GITHUB_TOKEN"); ok {
 		c.GitHub.Token = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_GITHUB_APP_ID")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("GITHUB_APP_ID")); value != "" {
 		id, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
-			return fmt.Errorf("WIKIX_GITHUB_APP_ID: %w", err)
+			return fmt.Errorf("GITHUB_APP_ID: %w", err)
 		}
 		c.GitHub.AppID = id
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_GITHUB_INSTALLATION_ID")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("GITHUB_INSTALLATION_ID")); value != "" {
 		id, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
-			return fmt.Errorf("WIKIX_GITHUB_INSTALLATION_ID: %w", err)
+			return fmt.Errorf("GITHUB_INSTALLATION_ID: %w", err)
 		}
 		c.GitHub.InstallationID = id
 	}
-	if value, ok := os.LookupEnv("WIKIX_GITHUB_PRIVATE_KEY"); ok {
+	if value, ok := os.LookupEnv("GITHUB_PRIVATE_KEY"); ok {
 		c.GitHub.PrivateKeyPEM = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_GITHUB_PRIVATE_KEY_FILE")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("GITHUB_PRIVATE_KEY_FILE")); value != "" {
 		c.GitHub.PrivateKeyFile = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_GITHUB_BASE_BRANCH")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("GITHUB_BASE_BRANCH")); value != "" {
 		c.GitHub.BaseBranch = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_GITHUB_CONTENT_PATH")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("GITHUB_CONTENT_PATH")); value != "" {
 		c.GitHub.ContentPath = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_GITHUB_PR_IMPORT")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("GITHUB_PR_IMPORT")); value != "" {
 		c.GitHub.PRImport = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_GITHUB_API_BASE_URL")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("GITHUB_API_BASE_URL")); value != "" {
 		c.GitHub.APIBaseURL = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_MAIL_HOST")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("MAIL_HOST")); value != "" {
 		c.Mail.Host = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_MAIL_PORT")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("MAIL_PORT")); value != "" {
 		port, err := strconv.Atoi(value)
 		if err != nil {
-			return fmt.Errorf("WIKIX_MAIL_PORT: %w", err)
+			return fmt.Errorf("MAIL_PORT: %w", err)
 		}
 		c.Mail.Port = port
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_MAIL_USERNAME")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("MAIL_USERNAME")); value != "" {
 		c.Mail.Username = value
 	}
-	if value, ok := os.LookupEnv("WIKIX_MAIL_PASSWORD"); ok {
+	if value, ok := os.LookupEnv("MAIL_PASSWORD"); ok {
 		c.Mail.Password = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_MAIL_FROM")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("MAIL_FROM")); value != "" {
 		c.Mail.From = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_MAIL_IMPLICIT_TLS")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("MAIL_IMPLICIT_TLS")); value != "" {
 		enabled, err := strconv.ParseBool(value)
 		if err != nil {
-			return fmt.Errorf("WIKIX_MAIL_IMPLICIT_TLS: %w", err)
+			return fmt.Errorf("MAIL_IMPLICIT_TLS: %w", err)
 		}
 		c.Mail.ImplicitTLS = enabled
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_REGISTRATION_MODE")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("REGISTRATION_MODE")); value != "" {
 		c.Registration.Mode = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_REGISTRATION_DEFAULT_GROUP")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("REGISTRATION_DEFAULT_GROUP")); value != "" {
 		c.Registration.DefaultGroup = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_AUDIT_RETENTION")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("AUDIT_RETENTION")); value != "" {
 		c.Audit.Retention = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_AUDIT_ARCHIVE_DIR")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("AUDIT_ARCHIVE_DIR")); value != "" {
 		c.Audit.ArchiveDir = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_AUDIT_INTERVAL")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("AUDIT_INTERVAL")); value != "" {
 		c.Audit.Interval = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_RATE_LIMIT_ENABLED")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("RATE_LIMIT_ENABLED")); value != "" {
 		enabled, err := strconv.ParseBool(value)
 		if err != nil {
-			return fmt.Errorf("WIKIX_RATE_LIMIT_ENABLED: %w", err)
+			return fmt.Errorf("RATE_LIMIT_ENABLED: %w", err)
 		}
 		c.RateLimit.Enabled = enabled
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_RATE_LIMIT_REQUESTS")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("RATE_LIMIT_REQUESTS")); value != "" {
 		requests, err := strconv.Atoi(value)
 		if err != nil {
-			return fmt.Errorf("WIKIX_RATE_LIMIT_REQUESTS: %w", err)
+			return fmt.Errorf("RATE_LIMIT_REQUESTS: %w", err)
 		}
 		c.RateLimit.Requests = requests
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_RATE_LIMIT_WINDOW")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("RATE_LIMIT_WINDOW")); value != "" {
 		c.RateLimit.Window = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_RATE_LIMIT_ROUTE_REQUESTS")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("RATE_LIMIT_ROUTE_REQUESTS")); value != "" {
 		requests, err := strconv.Atoi(value)
 		if err != nil {
-			return fmt.Errorf("WIKIX_RATE_LIMIT_ROUTE_REQUESTS: %w", err)
+			return fmt.Errorf("RATE_LIMIT_ROUTE_REQUESTS: %w", err)
 		}
 		c.RateLimit.RouteRequests = requests
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_RATE_LIMIT_ROUTE_WINDOW")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("RATE_LIMIT_ROUTE_WINDOW")); value != "" {
 		c.RateLimit.RouteWindow = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_SEARCH_BACKEND")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("SEARCH_BACKEND")); value != "" {
 		c.Search.Backend = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_SEARCH_URL")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("SEARCH_URL")); value != "" {
 		c.Search.URL = value
 	}
-	if value, ok := os.LookupEnv("WIKIX_SEARCH_API_KEY"); ok {
+	if value, ok := os.LookupEnv("SEARCH_API_KEY"); ok {
 		c.Search.APIKey = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_SEARCH_INDEX")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("SEARCH_INDEX")); value != "" {
 		c.Search.Index = value
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_METRICS_ENABLED")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("METRICS_ENABLED")); value != "" {
 		enabled, err := strconv.ParseBool(value)
 		if err != nil {
-			return fmt.Errorf("WIKIX_METRICS_ENABLED: %w", err)
+			return fmt.Errorf("METRICS_ENABLED: %w", err)
 		}
 		c.Metrics.Enabled = enabled
 	}
-	if value := strings.TrimSpace(os.Getenv("WIKIX_METRICS_PATH")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("METRICS_PATH")); value != "" {
 		c.Metrics.Path = value
 	}
-	if value, ok := os.LookupEnv("WIKIX_METRICS_TOKEN"); ok {
+	if value, ok := os.LookupEnv("METRICS_TOKEN"); ok {
 		c.Metrics.Token = value
 	}
 	return nil
+}
+
+func envString(key string, target *string) {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		*target = value
+	}
+}
+
+func envBool(key string, target *bool) error {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+	*target = parsed
+	return nil
+}
+
+func envInt(key string, target *int) error {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+	*target = parsed
+	return nil
+}
+
+func envInt32(key string, target *int32) error {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 32)
+	if err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+	*target = int32(parsed)
+	return nil
+}
+
+func envInt64(key string, target *int64) error {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+	*target = parsed
+	return nil
+}
+
+func splitEnvList(value string) []string {
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
 }
 
 func (c *Config) setDefault() {
@@ -402,6 +536,8 @@ func (c *Config) setDefault() {
 	if c.Content.ReloadInterval == "" {
 		c.Content.ReloadInterval = "0s"
 	}
+	c.Content.GitURL = strings.TrimSpace(c.Content.GitURL)
+	c.Content.GitBranch = strings.TrimSpace(c.Content.GitBranch)
 	if c.Server.Addr == "" {
 		c.Server.Addr = ":8080"
 	}
@@ -419,7 +555,7 @@ func (c *Config) setDefault() {
 		c.Cache.MaxBytes = 64 << 20
 	}
 	if strings.TrimSpace(c.Cache.Redis.Prefix) == "" {
-		c.Cache.Redis.Prefix = "wikix"
+		c.Cache.Redis.Prefix = "wiki_x"
 	}
 	if c.Database.MaxConns == 0 {
 		c.Database.MaxConns = 10
@@ -488,7 +624,7 @@ func (c *Config) setDefault() {
 	}
 	c.Search.URL = strings.TrimRight(strings.TrimSpace(c.Search.URL), "/")
 	if strings.TrimSpace(c.Search.Index) == "" {
-		c.Search.Index = "wikix"
+		c.Search.Index = "wiki_x"
 	}
 	c.Search.Index = strings.TrimSpace(c.Search.Index)
 	c.Metrics.Path = strings.TrimSpace(c.Metrics.Path)
@@ -575,6 +711,17 @@ func (c *Config) check() error {
 	if err != nil || reload < 0 {
 		return fmt.Errorf("content.reload_interval must be a non-negative duration")
 	}
+	if c.Content.GitURL != "" {
+		if !validGitURL(c.Content.GitURL) {
+			return fmt.Errorf("content.git_url must be a http(s), ssh or git url")
+		}
+	}
+	if !validGitBranch(c.Content.GitBranch) {
+		return fmt.Errorf("content.git_branch is invalid")
+	}
+	if c.Content.GitDepth < 0 || c.Content.GitDepth > 1000 {
+		return fmt.Errorf("content.git_depth must be between 0 and 1000")
+	}
 	ttl, err := time.ParseDuration(c.Cache.TTL)
 	if err != nil || ttl <= 0 {
 		return fmt.Errorf("cache.ttl must be a positive duration")
@@ -654,7 +801,7 @@ func (c *Config) check() error {
 			return fmt.Errorf("github.app_id and github.installation_id are required")
 		}
 		if c.GitHub.PrivateKeyFile == "" && strings.TrimSpace(c.GitHub.PrivateKeyPEM) == "" {
-			return fmt.Errorf("github.private_key_file or WIKIX_GITHUB_PRIVATE_KEY is required")
+			return fmt.Errorf("github.private_key_file or GITHUB_PRIVATE_KEY is required")
 		}
 	}
 	if c.GitHub.Repo != "" && strings.Count(c.GitHub.Repo, "/") != 1 {
@@ -767,6 +914,51 @@ func (c *Config) check() error {
 func (c AuditConfig) RetentionDuration() time.Duration {
 	value, _ := time.ParseDuration(c.Retention)
 	return value
+}
+
+func validGitURL(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasPrefix(value, "-") {
+		return false
+	}
+	if strings.ContainsAny(value, "\r\n\t ") {
+		return false
+	}
+	if strings.HasPrefix(value, "git@") {
+		index := strings.IndexByte(value, ':')
+		if index <= 4 || index >= len(value)-1 {
+			return false
+		}
+		host := value[4:index]
+		return host != "" && !strings.HasPrefix(host, "-")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Hostname() == "" || strings.HasPrefix(parsed.Hostname(), "-") {
+		return false
+	}
+	if parsed.User != nil && strings.HasPrefix(parsed.User.Username(), "-") {
+		return false
+	}
+	switch parsed.Scheme {
+	case "http", "https", "ssh", "git":
+		return true
+	default:
+		return false
+	}
+}
+
+func validGitBranch(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return true
+	}
+	if len(value) > 200 || strings.HasPrefix(value, "-") {
+		return false
+	}
+	if strings.Contains(value, "..") || strings.ContainsAny(value, " ~^:?*[\\\r\n\t") {
+		return false
+	}
+	return true
 }
 
 func validSearchIndex(name string) bool {

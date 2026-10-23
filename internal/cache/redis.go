@@ -46,7 +46,7 @@ type Redis struct {
 func newRedis(opts Options) (*Redis, error) {
 	prefix := strings.TrimSpace(opts.RedisPrefix)
 	if prefix == "" {
-		prefix = "wikix"
+		prefix = "wiki_x"
 	}
 	client := redis.NewClient(&redis.Options{
 		Addr:         opts.RedisAddr,

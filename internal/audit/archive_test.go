@@ -18,9 +18,9 @@ import (
 )
 
 func TestArchive(t *testing.T) {
-	databaseURL := os.Getenv("WIKIX_TEST_POSTGRES_URL_AUDIT")
+	databaseURL := os.Getenv("TEST_POSTGRES_URL_AUDIT")
 	if databaseURL == "" {
-		t.Skip("set WIKIX_TEST_POSTGRES_URL_AUDIT to run audit integration tests")
+		t.Skip("set TEST_POSTGRES_URL_AUDIT to run audit integration tests")
 	}
 	ctx := context.Background()
 	data, err := store.Open(ctx, config.DatabaseConfig{URL: databaseURL, MaxConns: 2})

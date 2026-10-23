@@ -683,6 +683,30 @@ main {
   font-size: .84rem;
 }
 
+.wx-audio {
+  margin: 22px 0;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.wx-audio audio {
+  display: block;
+  width: 100%;
+}
+
+.wx-audio-title {
+  margin-top: 8px;
+  font-weight: 600;
+}
+
+.wx-audio-caption {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: .84rem;
+}
+
 .wx-collapse {
   margin: 22px 0;
   border: 1px solid var(--line);

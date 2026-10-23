@@ -188,7 +188,7 @@ func (s *Store) SetUserGroups(ctx context.Context, userID int64, groups []string
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('wikix_user_admin')::bigint)`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('wiki_x_user_admin')::bigint)`); err != nil {
 		return err
 	}
 
@@ -260,7 +260,7 @@ func (s *Store) SetUserDisabled(ctx context.Context, userID int64, disabled bool
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('wikix_user_admin')::bigint)`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('wiki_x_user_admin')::bigint)`); err != nil {
 		return err
 	}
 

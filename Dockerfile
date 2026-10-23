@@ -5,19 +5,19 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN go run ./cmd/frontend
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/wikix ./cmd/wikix
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/wiki_x ./cmd/wiki_x
 
 FROM alpine:3.22
 
 RUN apk add --no-cache ca-certificates tzdata \
-    && adduser -D -u 10001 wikix \
+    && adduser -D -u 10001 wiki_x \
     && mkdir -p /data/media /data/audit \
-    && chown -R wikix:wikix /data
+    && chown -R wiki_x:wiki_x /data
 
-COPY --from=build /out/wikix /usr/local/bin/wikix
+COPY --from=build /out/wiki_x /usr/local/bin/wiki_x
 
-USER wikix
+USER wiki_x
 WORKDIR /data
 EXPOSE 8080
-ENTRYPOINT ["wikix"]
-CMD ["serve", "-config", "/data/wikix.yaml"]
+ENTRYPOINT ["wiki_x"]
+CMD ["serve", "-config", "/data/wiki_x.yaml"]

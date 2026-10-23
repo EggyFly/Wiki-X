@@ -34,7 +34,7 @@ func (a *App) servePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	skin := a.site.DefaultSkin()
-	if cookie, err := r.Cookie("wikix_skin"); err == nil && a.site.HasSkin(cookie.Value) {
+	if cookie, err := r.Cookie("wiki_x_skin"); err == nil && a.site.HasSkin(cookie.Value) {
 		skin = cookie.Value
 	}
 	data, err := a.site.RenderSkin(r.Context(), r.URL.Path, skin)
@@ -61,7 +61,7 @@ func (a *App) handleSkin(w http.ResponseWriter, r *http.Request) {
 		secure = a.cfg.Auth.SecureCookies
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     "wikix_skin",
+		Name:     "wiki_x_skin",
 		Value:    skin,
 		Path:     "/",
 		MaxAge:   31536000,

@@ -2,13 +2,13 @@ services:
   db:
     image: postgres:18-alpine
     environment:
-      POSTGRES_DB: wikix
-      POSTGRES_USER: wikix
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wikix-change-me}
+      POSTGRES_DB: wiki_x
+      POSTGRES_USER: wiki_x
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wiki_x-change-me}
     volumes:
-      - wikix-db:/var/lib/postgresql
+      - wiki_x-db:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wikix -d wikix"]
+      test: ["CMD-SHELL", "pg_isready -U wiki_x -d wiki_x"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -27,13 +27,16 @@ services:
   app:
     build: .
     ports:
-      - "${WIKIX_PORT:-8080}:8080"
+      - "${PORT:-8080}:8080"
+    env_file:
+      - path: .env
+        required: false
     environment:
-      WIKIX_DATABASE_URL: postgres://wikix:${POSTGRES_PASSWORD:-wikix-change-me}@db:5432/wikix?sslmode=disable
+      DATABASE_URL: ${DATABASE_URL:-postgres://wiki_x:wiki_x-change-me@db:5432/wiki_x?sslmode=disable}
     volumes:
-      - ./deploy/wikix.yaml:/data/wikix.yaml:ro
-      - wikix-media:/data/media
-      - wikix-audit:/data/audit
+      - ./deploy/wiki_x.yaml:/data/wiki_x.yaml:ro
+      - wiki_x-media:/data/media
+      - wiki_x-audit:/data/audit
     depends_on:
       db:
         condition: service_healthy
@@ -47,6 +50,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  wikix-db:
-  wikix-media:
-  wikix-audit:
+  wiki_x-db:
+  wiki_x-media:
+  wiki_x-audit:

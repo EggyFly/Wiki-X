@@ -37,18 +37,18 @@ Wiki-X 的目标不是复刻 MediaWiki, 而是把社区 wiki 最常需要的能�
 Git 模式:
 
 ```bash
-go run ./cmd/wikix serve -config examples/basic/wikix.yaml
-go run ./cmd/wikix build -config examples/basic/wikix.yaml -out dist
+go run ./cmd/wiki_x serve -config examples/basic/wiki_x.yaml
+go run ./cmd/wiki_x build -config examples/basic/wiki_x.yaml -out dist
 ```
 
 社区模式需要 PostgreSQL 和账号:
 
 ```bash
-export WIKIX_DATABASE_URL='postgres://postgres:password@127.0.0.1:5432/wikix_dev?sslmode=disable'
-go run ./cmd/wikix migrate -config examples/community/wikix.yaml
-go run ./cmd/wikix import  -config examples/community/wikix.yaml
-printf 'change-me-please\n' | go run ./cmd/wikix user create -config examples/community/wikix.yaml -name admin -admin
-go run ./cmd/wikix serve -config examples/community/wikix.yaml
+export DATABASE_URL='postgres://postgres:password@127.0.0.1:5432/wiki_x_dev?sslmode=disable'
+go run ./cmd/wiki_x migrate -config examples/community/wiki_x.yaml
+go run ./cmd/wiki_x import  -config examples/community/wiki_x.yaml
+printf 'change-me-please\n' | go run ./cmd/wiki_x user create -config examples/community/wiki_x.yaml -name admin -admin
+go run ./cmd/wiki_x serve -config examples/community/wiki_x.yaml
 ```
 
 > 先用小规模核心玩家把编辑、审核和搜索跑顺, 再扩展玩法页面和数据模块. 没有内容生态的 wiki, 功能再多也只是空壳.

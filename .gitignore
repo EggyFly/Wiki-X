@@ -19,7 +19,8 @@ SOUL.md
 MEMORY.md
 dist/
 *.rar
-*.*~examples/community/media/
+*.*~
+examples/community/media/
 *.pem
 *.key
 !frontend/dist/

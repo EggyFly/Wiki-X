@@ -617,7 +617,7 @@ func runServer(ctx context.Context, handler http.Handler, addr string) error {
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
-	slog.Info("wikix server listening", "addr", listener.Addr().String())
+	slog.Info("wiki_x server listening", "addr", listener.Addr().String())
 
 	errCh := make(chan error, 1)
 	go func() {

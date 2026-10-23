@@ -28,19 +28,19 @@ func TestMetricsEndpoint(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("metrics status = %d", resp.StatusCode)
 	}
-	if !strings.Contains(body, "wikix_page_cache_misses_total 1") {
+	if !strings.Contains(body, "wiki_x_page_cache_misses_total 1") {
 		t.Fatalf("misses missing:\n%s", body)
 	}
-	if !strings.Contains(body, "wikix_page_cache_hits_total 1") {
+	if !strings.Contains(body, "wiki_x_page_cache_hits_total 1") {
 		t.Fatalf("hits missing:\n%s", body)
 	}
-	if !strings.Contains(body, "wikix_page_renders_total 1") {
+	if !strings.Contains(body, "wiki_x_page_renders_total 1") {
 		t.Fatalf("renders missing:\n%s", body)
 	}
-	if !strings.Contains(body, `wikix_http_requests_total{method="GET",status="200"}`) {
+	if !strings.Contains(body, `wiki_x_http_requests_total{method="GET",status="200"}`) {
 		t.Fatalf("http requests missing:\n%s", body)
 	}
-	if !strings.Contains(body, "wikix_pending_revisions 0") {
+	if !strings.Contains(body, "wiki_x_pending_revisions 0") {
 		t.Fatalf("pending revisions missing:\n%s", body)
 	}
 }

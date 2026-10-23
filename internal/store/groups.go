@@ -80,7 +80,7 @@ func (s *Store) SetGroupRights(ctx context.Context, groupID int64, rights []stri
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('wikix_user_admin')::bigint)`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('wiki_x_user_admin')::bigint)`); err != nil {
 		return err
 	}
 
@@ -126,7 +126,7 @@ func (s *Store) DeleteGroup(ctx context.Context, groupID, actorID int64) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('wikix_user_admin')::bigint)`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('wiki_x_user_admin')::bigint)`); err != nil {
 		return err
 	}
 

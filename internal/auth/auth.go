@@ -30,10 +30,10 @@ const (
 	RightUpload      = store.RightUpload
 	RightManageUsers = store.RightManageUsers
 
-	SessionCookieName = "wikix_session"
-	csrfCookieName    = "wikix_csrf"
-	oauthStateCookie  = "wikix_oauth_state"
-	totpTicketCookie  = "wikix_totp_ticket"
+	SessionCookieName = "wiki_x_session"
+	csrfCookieName    = "wiki_x_csrf"
+	oauthStateCookie  = "wiki_x_oauth_state"
+	totpTicketCookie  = "wiki_x_totp_ticket"
 	totpTicketTTL     = 5 * time.Minute
 )
 
@@ -215,7 +215,7 @@ var (
 func VerifyLogin(user *store.User, password string) bool {
 	if user == nil || user.PasswordHash == "" {
 		dummyHashOnce.Do(func() {
-			dummyHash, _ = HashPassword("wiki-x-dummy-password")
+			dummyHash, _ = HashPassword("wiki_x-dummy-password")
 		})
 		VerifyPassword(dummyHash, password)
 		return false

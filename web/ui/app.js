@@ -112,6 +112,9 @@
       },
       collapse: function () {
         insertBlock(textarea, "```wx-collapse\nitems:\n  - title: 问题\n    text: 答案\n```");
+      },
+      audio: function () {
+        insertBlock(textarea, "```wx-audio\nsrc: /media/audio.mp3\ntitle: 音频标题\n```");
       }
     };
 
