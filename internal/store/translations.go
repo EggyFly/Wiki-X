@@ -26,11 +26,11 @@ func (s *Store) ListTranslationGroups(ctx context.Context, limit, offset int) ([
 		offset = 0
 	}
 	var total int
-	if err := s.pool.QueryRow(ctx, `SELECT count(DISTINCT translation_key) FROM pages
+	if err := s.read().QueryRow(ctx, `SELECT count(DISTINCT translation_key) FROM pages
 		WHERE draft = false AND translation_key <> ''`).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT translation_key FROM pages
+	rows, err := s.read().Query(ctx, `SELECT translation_key FROM pages
 		WHERE draft = false AND translation_key <> ''
 		GROUP BY translation_key
 		ORDER BY translation_key
@@ -55,7 +55,7 @@ func (s *Store) ListTranslationGroups(ctx context.Context, limit, offset int) ([
 		return nil, total, nil
 	}
 
-	pageRows, err := s.pool.Query(ctx, `SELECT translation_key, route, title, version,
+	pageRows, err := s.read().Query(ctx, `SELECT translation_key, route, title, version,
 			translation_base_version, updated_at
 		FROM pages WHERE draft = false AND translation_key = ANY($1)
 		ORDER BY translation_key, route`, keys)

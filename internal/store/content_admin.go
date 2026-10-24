@@ -35,10 +35,10 @@ func (s *Store) ListAdminPages(ctx context.Context, status, query string, limit,
 	filter := `WHERE ($1 = 'all' OR ($1 = 'deleted' AND p.deleted_at IS NOT NULL) OR ($1 = 'active' AND p.deleted_at IS NULL))
 		AND ($2 = '' OR p.route ILIKE '%' || $2 || '%' OR p.title ILIKE '%' || $2 || '%')`
 	var total int
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM pages p `+filter, status, query).Scan(&total); err != nil {
+	if err := s.read().QueryRow(ctx, `SELECT count(*) FROM pages p `+filter, status, query).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT p.id, p.route, p.title, p.protected, p.updated_at, p.deleted_at,
+	rows, err := s.read().Query(ctx, `SELECT p.id, p.route, p.title, p.protected, p.updated_at, p.deleted_at,
 			COALESCE(u.name, ''), p.delete_reason,
 			(SELECT count(*) FROM page_revisions r WHERE r.page_id = p.id)
 		FROM pages p LEFT JOIN users u ON u.id = p.deleted_by `+filter+`

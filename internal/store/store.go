@@ -40,16 +40,42 @@ var (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	replica *pgxpool.Pool
 }
 
 func Open(ctx context.Context, cfg config.DatabaseConfig) (*Store, error) {
-	poolCfg, err := pgxpool.ParseConfig(cfg.URL)
+	primary, err := primaryDSN(cfg)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := openPool(ctx, primary, cfg.MaxConns)
+	if err != nil {
+		return nil, err
+	}
+	replica := pool
+	if !cfg.SameDatabase() {
+		replicaURL, err := replicaDSN(cfg)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+		replica, err = openPool(ctx, replicaURL, cfg.MaxConns)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
+	return &Store{pool: pool, replica: replica}, nil
+}
+
+func openPool(ctx context.Context, dsn string, maxConns int32) (*pgxpool.Pool, error) {
+	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse database url: %w", err)
 	}
-	if cfg.MaxConns > 0 {
-		poolCfg.MaxConns = cfg.MaxConns
+	if maxConns > 0 {
+		poolCfg.MaxConns = maxConns
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
@@ -59,15 +85,31 @@ func Open(ctx context.Context, cfg config.DatabaseConfig) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
-	return &Store{pool: pool}, nil
+	return pool, nil
+}
+
+func (s *Store) read() readQuerier {
+	if s.replica == nil || s.replica == s.pool {
+		return s.pool
+	}
+	return readRouter{primary: s.pool, replica: s.replica}
 }
 
 func (s *Store) Close() {
+	if s.replica != nil && s.replica != s.pool {
+		s.replica.Close()
+	}
 	s.pool.Close()
 }
 
 func (s *Store) Ping(ctx context.Context) error {
-	return s.pool.Ping(ctx)
+	if err := s.pool.Ping(ctx); err != nil {
+		return err
+	}
+	if s.replica != nil && s.replica != s.pool {
+		return s.replica.Ping(ctx)
+	}
+	return nil
 }
 
 const migrationLockKey int64 = 0x57495858

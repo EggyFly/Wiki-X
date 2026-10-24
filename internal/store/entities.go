@@ -77,7 +77,7 @@ func EntityKinds() []string {
 }
 
 func (s *Store) ListEntityTypes(ctx context.Context) ([]*EntityType, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, name, label, created_at FROM entity_types ORDER BY name`)
+	rows, err := s.read().Query(ctx, `SELECT id, name, label, created_at FROM entity_types ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func (s *Store) ListEntityTypes(ctx context.Context) ([]*EntityType, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	fieldRows, err := s.pool.Query(ctx, `SELECT id, type_id, name, label, kind, required, options, sort_order
+	fieldRows, err := s.read().Query(ctx, `SELECT id, type_id, name, label, kind, required, options, sort_order
 		FROM entity_fields ORDER BY type_id, sort_order, name`)
 	if err != nil {
 		return nil, err
@@ -279,7 +279,7 @@ func (s *Store) ListEntities(ctx context.Context, limit int) ([]*EntityRecord, e
 	if limit <= 0 || limit > 5000 {
 		limit = 500
 	}
-	rows, err := s.pool.Query(ctx, entitySelectSQL+` ORDER BY e.type_id, e.name LIMIT $1`, limit)
+	rows, err := s.read().Query(ctx, entitySelectSQL+` ORDER BY e.type_id, e.name LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +318,7 @@ func scanEntityRecord(rows entityRows) (*EntityRecord, error) {
 }
 
 func (s *Store) GetEntity(ctx context.Context, id int64) (*EntityRecord, error) {
-	row := s.pool.QueryRow(ctx, entitySelectSQL+` WHERE e.id = $1`, id)
+	row := s.read().QueryRow(ctx, entitySelectSQL+` WHERE e.id = $1`, id)
 	item, err := scanEntityRecord(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -327,7 +327,7 @@ func (s *Store) GetEntity(ctx context.Context, id int64) (*EntityRecord, error) 
 }
 
 func (s *Store) GetEntityByName(ctx context.Context, name string) (*EntityRecord, error) {
-	row := s.pool.QueryRow(ctx, entitySelectSQL+` WHERE e.name = $1`, name)
+	row := s.read().QueryRow(ctx, entitySelectSQL+` WHERE e.name = $1`, name)
 	item, err := scanEntityRecord(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -441,7 +441,7 @@ func (s *Store) LoadEntities(ctx context.Context) ([]*content.Entity, error) {
 	for _, item := range types {
 		typeIndex[item.ID] = item
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id, type_id, name, label, data FROM entities ORDER BY name`)
+	rows, err := s.read().Query(ctx, `SELECT id, type_id, name, label, data FROM entities ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}

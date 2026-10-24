@@ -302,6 +302,36 @@ func TestLoadOSSMediaConfig(t *testing.T) {
 	}
 }
 
+func TestLoadPrimaryReplicaDatabase(t *testing.T) {
+	body := "database:\n  same: false\n  maintenance_database: postgres\n  primary:\n    address: 127.0.0.1:5432\n    username: postgres\n    password: primary-pass\n    database: wiki_x\n    params: sslmode=disable\n  replica:\n    address: 127.0.0.1:5433\n    username: postgres\n    password: replica-pass\n    database: wiki_x\n    params: sslmode=disable&connect_timeout=5\n"
+	path := writeConfig(t, body)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Database.SameDatabase() || !cfg.Database.Configured() {
+		t.Fatalf("database = %+v", cfg.Database)
+	}
+	if cfg.Database.Primary.Database != "wiki_x" || cfg.Database.Replica.Address != "127.0.0.1:5433" {
+		t.Fatalf("database = %+v", cfg.Database)
+	}
+	if cfg.Database.MaintenanceDatabase != "postgres" {
+		t.Fatalf("maintenance database = %q", cfg.Database.MaintenanceDatabase)
+	}
+	for _, body := range []string{
+		"content:\n  source: postgres\ndatabase:\n  same: false\n  primary:\n    address: 127.0.0.1:5432\n    database: wiki_x\n",
+		"content:\n  source: postgres\ndatabase:\n  primary:\n    database: wiki_x\n",
+		"database:\n  primary:\n    address: 127.0.0.1:5432\n    database: wiki_x\n    params: '%zz'\n",
+		"database:\n  maintenance_database: bad/name\n  primary:\n    address: 127.0.0.1:5432\n    database: wiki_x\n",
+		"content:\n  source: postgres\ndatabase:\n  same: false\n  primary:\n    address: 127.0.0.1:5432\n    database: wiki_x\n  replica:\n    address: 127.0.0.1:5433\n",
+	} {
+		path = writeConfig(t, body)
+		if _, err := Load(path); err == nil {
+			t.Fatalf("expected database error for %q", body)
+		}
+	}
+}
+
 func TestLoadRejectsUnknownField(t *testing.T) {
 	path := writeConfig(t, "site:\n  titel: typo\n")
 	if _, err := Load(path); err == nil {

@@ -13,7 +13,7 @@ import (
 var builtinGroups = map[string]bool{"admin": true, "editor": true, "user": true}
 
 func (s *Store) ListGroups(ctx context.Context) ([]*Group, error) {
-	rows, err := s.pool.Query(ctx, `SELECT g.id, g.name,
+	rows, err := s.read().Query(ctx, `SELECT g.id, g.name,
 			COALESCE(array_agg(DISTINCT gr.right_name ORDER BY gr.right_name) FILTER (WHERE gr.right_name IS NOT NULL), '{}'),
 			count(DISTINCT ug.user_id)
 		FROM groups g

@@ -6,7 +6,10 @@
 
 ### 破坏性变更
 
-- 配置键去掉项目前缀: 使用 `DATABASE_URL`、`REDIS_ADDR`、`SITE_TITLE` 等裸键, 旧 `WIKIX_*` 不再读取
+- 配置键去掉项目前缀: 使用 `SITE_TITLE`、`REDIS_ADDR` 等裸键, 旧 `WIKIX_*` 不再读取
+- 数据库配置改为 `same` + `primary`/`replica`: 地址、用户名、密码、库名和 URL query 形式附加参数
+- 主库负责写、迁移、会话和强一致读; 页面、搜索、审计和多数内容只读查询走从库; 从库连接错误回退主库
+- `wiki_x setup` 可配置维护库, 支持创建数据库、迁移、可选导入和创建管理员
 - CLI、配置文件和目录统一为 `wiki_x`: `cmd/wiki_x`、`wiki_x.yaml`
 - Compose 数据库/用户/密码默认值/卷名改为 `wiki_x`, 测试库改为 `wiki_x_test*`
 - 内部命名统一为 `wiki_x`: Cookie、Redis 前缀、搜索索引、Prometheus 指标、构建清单、管理员锁
@@ -14,6 +17,7 @@
 
 ### 新增
 
+- `wiki_x setup`: 自动创建不存在的数据库、执行迁移, 可选导入内容和创建管理员
 - 根目录 `wiki_x.yaml` 和 `.env` 一键启动: 默认 Git 模式, 不需要 `-config` 和数据库
 - 音频媒体: 上传和 Git 媒体支持 wav/mp3/ogg/flac, Range 播放, `wx-audio` 组件和编辑器工具栏
 - Wwise/FMOD bank 不做解析, 上传时拒绝 `.bnk`/`.wem`/`.bank`/`.fsb`, 要求先导出为网页音频格式

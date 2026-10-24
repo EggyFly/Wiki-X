@@ -48,6 +48,8 @@ func main() {
 		err = runMigrate(ctx, os.Args[2:])
 	case "import":
 		err = runImport(ctx, os.Args[2:])
+	case "setup":
+		err = runSetup(ctx, os.Args[2:])
 	case "warm":
 		err = runWarm(ctx, os.Args[2:])
 	case "user":
@@ -163,7 +165,7 @@ func runServe(ctx context.Context, args []string) error {
 		authManager = auth.New(cfg.Auth, data)
 		go authManager.CleanupSessions(ctx, time.Hour)
 	case "git":
-		if strings.TrimSpace(cfg.Database.URL) != "" {
+		if cfg.Database.Configured() {
 			data, err = openStore(ctx, cfg)
 			if err != nil {
 				return err
@@ -177,7 +179,7 @@ func runServe(ctx context.Context, args []string) error {
 			authManager = auth.New(cfg.Auth, data)
 			go authManager.CleanupSessions(ctx, time.Hour)
 		} else if cfg.GitHub.Token != "" || cfg.GitHub.AppID > 0 {
-			slog.Warn("github PR editing is disabled without database.url")
+			slog.Warn("github PR editing is disabled without database configuration")
 		}
 		if err := ensureGitContent(ctx, cfg, cfg.Content.Dir); err != nil {
 			return err
@@ -257,8 +259,11 @@ func runImport(ctx context.Context, args []string) error {
 	if err := data.Migrate(ctx); err != nil {
 		return err
 	}
+	return importContent(ctx, cfg, data, *contentDir, *authorName)
+}
 
-	dir := *contentDir
+func importContent(ctx context.Context, cfg *config.Config, data *store.Store, contentDir, authorName string) error {
+	dir := contentDir
 	if dir == "" {
 		dir = cfg.Content.Dir
 	}
@@ -280,10 +285,10 @@ func runImport(ctx context.Context, args []string) error {
 		}
 	}
 	var authorID *int64
-	if *authorName != "" {
-		user, err := data.UserByName(ctx, *authorName)
+	if authorName != "" {
+		user, err := data.UserByName(ctx, authorName)
 		if err != nil {
-			return fmt.Errorf("author %s: %w", *authorName, err)
+			return fmt.Errorf("author %s: %w", authorName, err)
 		}
 		authorID = &user.ID
 	}
@@ -292,6 +297,67 @@ func runImport(ctx context.Context, args []string) error {
 		return err
 	}
 	slog.Info("import done", "created", created, "updated", updated, "source", dir)
+	return nil
+}
+
+func runSetup(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("setup", flag.ContinueOnError)
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
+	importContentFlag := flags.Bool("import", false, "import Git content after migration")
+	contentDir := flags.String("content-dir", "", "git content directory override")
+	authorName := flags.String("author", "", "author user name for import")
+	adminName := flags.String("admin", "", "create or promote an admin user")
+	adminEmail := flags.String("email", "", "admin email")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	if !cfg.Database.Configured() {
+		return errors.New("database.primary or DATABASE_PRIMARY_ADDRESS is required")
+	}
+	if err := store.CheckReplica(ctx, cfg.Database); err != nil {
+		return err
+	}
+	if err := store.EnsureDatabase(ctx, cfg.Database); err != nil {
+		return err
+	}
+	data, err := openStore(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer data.Close()
+	if err := data.Migrate(ctx); err != nil {
+		return err
+	}
+	if name := strings.TrimSpace(*adminName); name != "" {
+		if _, err := data.UserByName(ctx, name); err == nil {
+			if err := data.GrantGroup(ctx, name, "admin"); err != nil {
+				return err
+			}
+			slog.Info("admin already exists", "name", name)
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return err
+		} else {
+			err := createUserWithData(ctx, data, name, *adminEmail, true)
+			if errors.Is(err, store.ErrUserExists) {
+				if err := data.GrantGroup(ctx, name, "admin"); err != nil {
+					return err
+				}
+				slog.Info("admin already exists", "name", name)
+			} else if err != nil {
+				return err
+			}
+		}
+	}
+	if *importContentFlag {
+		if err := importContent(ctx, cfg, data, *contentDir, *authorName); err != nil {
+			return err
+		}
+	}
+	slog.Info("setup done")
 	return nil
 }
 
@@ -425,6 +491,22 @@ func runUserCreate(ctx context.Context, args []string) error {
 	if strings.TrimSpace(*name) == "" {
 		return errors.New("user name is required")
 	}
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	data, err := openStore(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer data.Close()
+	if err := data.Migrate(ctx); err != nil {
+		return err
+	}
+	return createUserWithData(ctx, data, *name, *email, *admin)
+}
+
+func createUserWithData(ctx context.Context, data *store.Store, name, email string, admin bool) error {
 	fmt.Fprintln(os.Stderr, "reading password from stdin")
 	raw, err := io.ReadAll(io.LimitReader(os.Stdin, 4096))
 	if err != nil {
@@ -438,23 +520,11 @@ func runUserCreate(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg, err := config.Load(*configPath)
+	user, err := data.CreateUser(ctx, name, email, hash, admin)
 	if err != nil {
 		return err
 	}
-	data, err := openStore(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	defer data.Close()
-	if err := data.Migrate(ctx); err != nil {
-		return err
-	}
-	user, err := data.CreateUser(ctx, *name, *email, hash, *admin)
-	if err != nil {
-		return err
-	}
-	slog.Info("user created", "name", user.Name, "admin", *admin)
+	slog.Info("user created", "name", user.Name, "admin", admin)
 	return nil
 }
 
@@ -525,8 +595,8 @@ func runAudit(ctx context.Context, args []string) error {
 }
 
 func openStore(ctx context.Context, cfg *config.Config) (*store.Store, error) {
-	if strings.TrimSpace(cfg.Database.URL) == "" {
-		return nil, errors.New("database.url is required, set it in config or DATABASE_URL")
+	if !cfg.Database.Configured() {
+		return nil, errors.New("database.primary or DATABASE_PRIMARY_ADDRESS is required")
 	}
 	return store.Open(ctx, cfg.Database)
 }
@@ -550,5 +620,5 @@ func gitPullFunc(dir string) func(context.Context) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: wiki_x <build|serve|migrate|import|warm|user|audit|search|version> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: wiki_x <build|serve|migrate|import|setup|warm|user|audit|search|version> [flags]")
 }

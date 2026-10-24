@@ -18,7 +18,7 @@ func (s *Store) ListAuditLogs(ctx context.Context, filter AuditFilter, limit, of
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.pool.Query(ctx, `SELECT a.id, a.actor_id, COALESCE(u.name, ''), a.action, a.target, a.detail, a.created_at
+	rows, err := s.read().Query(ctx, `SELECT a.id, a.actor_id, COALESCE(u.name, ''), a.action, a.target, a.detail, a.created_at
 		FROM audit_logs a
 		LEFT JOIN users u ON u.id = a.actor_id
 		WHERE ($1 = '' OR a.action ILIKE '%' || $1 || '%' OR a.target ILIKE '%' || $1 || '%'
@@ -59,7 +59,7 @@ func (s *Store) ListAuditLogsPage(ctx context.Context, filter AuditFilter, curso
 		cursorTime = cursor.CreatedAt
 		cursorID = cursor.ID
 	}
-	rows, err := s.pool.Query(ctx, `SELECT a.id, a.actor_id, COALESCE(u.name, ''), a.action, a.target, a.detail, a.created_at
+	rows, err := s.read().Query(ctx, `SELECT a.id, a.actor_id, COALESCE(u.name, ''), a.action, a.target, a.detail, a.created_at
 		FROM audit_logs a
 		LEFT JOIN users u ON u.id = a.actor_id
 		WHERE ($1 = '' OR a.action ILIKE '%' || $1 || '%' OR a.target ILIKE '%' || $1 || '%'
@@ -98,7 +98,7 @@ func (s *Store) StreamAuditLogsBefore(ctx context.Context, before time.Time, fn 
 	lastID := int64(0)
 	count := 0
 	for {
-		rows, err := s.pool.Query(ctx, `SELECT a.id, a.actor_id, COALESCE(u.name, ''), a.action, a.target, a.detail, a.created_at
+		rows, err := s.read().Query(ctx, `SELECT a.id, a.actor_id, COALESCE(u.name, ''), a.action, a.target, a.detail, a.created_at
 			FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id
 			WHERE a.created_at < $1 AND a.id > $2
 			ORDER BY a.id LIMIT 500`, before, lastID)
@@ -145,7 +145,7 @@ func (s *Store) DeleteAuditLogsThrough(ctx context.Context, maxID int64, before 
 
 func (s *Store) CountAuditLogs(ctx context.Context, filter AuditFilter) (int, error) {
 	var count int
-	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM audit_logs a
+	err := s.read().QueryRow(ctx, `SELECT count(*) FROM audit_logs a
 		LEFT JOIN users u ON u.id = a.actor_id
 		WHERE ($1 = '' OR a.action ILIKE '%' || $1 || '%' OR a.target ILIKE '%' || $1 || '%'
 			OR a.detail ILIKE '%' || $1 || '%' OR COALESCE(u.name, '') ILIKE '%' || $1 || '%')

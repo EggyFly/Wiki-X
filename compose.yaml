@@ -32,7 +32,12 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://wiki_x:wiki_x-change-me@db:5432/wiki_x?sslmode=disable}
+      DATABASE_SAME: "true"
+      DATABASE_PRIMARY_ADDRESS: db:5432
+      DATABASE_PRIMARY_USERNAME: wiki_x
+      DATABASE_PRIMARY_PASSWORD: ${POSTGRES_PASSWORD:-wiki_x-change-me}
+      DATABASE_PRIMARY_DATABASE: wiki_x
+      DATABASE_PRIMARY_PARAMS: sslmode=disable
       CONTENT_SOURCE: postgres
       CONTENT_DIR: /data/content
       SITE_COMMUNITY_UI: "true"

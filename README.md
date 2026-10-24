@@ -40,21 +40,29 @@ go run ./cmd/wiki_x serve
 不需要数据库, 也不需要额外传 `-config`.
 静态构建直接运行 `go run ./cmd/wiki_x build`, 产物在 `dist/`.
 
-**要开社区模式时**, 先准备一个 PostgreSQL 数据库, 把 `.env` 改成下面这样, 再执行迁移建表、导入和创建管理员:
+**要开社区模式时**, 先准备 PostgreSQL 服务, 把 `.env` 改成下面这样, 然后执行一次 setup 和启动.
+setup 会尝试创建不存在的数据库、执行迁移，按需导入示例内容并创建管理员.
 
 ```dotenv
 CONTENT_SOURCE=postgres
 CONTENT_DIR=examples/basic/content
-DATABASE_URL=postgres://postgres:password@127.0.0.1:5432/wiki_x_dev?sslmode=disable
+DATABASE_SAME=true
+DATABASE_MAINTENANCE_DATABASE=postgres
+DATABASE_PRIMARY_ADDRESS=127.0.0.1:5432
+DATABASE_PRIMARY_USERNAME=postgres
+DATABASE_PRIMARY_PASSWORD=你的密码
+DATABASE_PRIMARY_DATABASE=wiki_x_dev
+DATABASE_PRIMARY_PARAMS=sslmode=disable
 SITE_COMMUNITY_UI=true
 ```
 
 ```bash
-go run ./cmd/wiki_x migrate
-go run ./cmd/wiki_x import
-printf 'change-me-please\n' | go run ./cmd/wiki_x user create -name admin -admin
+go run ./cmd/wiki_x setup -import -admin admin
 go run ./cmd/wiki_x serve
 ```
+
+`setup -admin` 会从标准输入读取管理员密码，按提示输入即可.
+数据库已经存在时 setup 仍然是幂等的，不会删除已有表或数据.
 
 Redis 是可选的, `CACHE_DRIVER=auto` 在没有 Redis 时会自动使用内存缓存.
 

@@ -44,7 +44,12 @@ go run ./cmd/wiki_x build -config examples/basic/wiki_x.yaml -out dist
 社区模式需要 PostgreSQL 和账号:
 
 ```bash
-export DATABASE_URL='postgres://postgres:password@127.0.0.1:5432/wiki_x_dev?sslmode=disable'
+export DATABASE_SAME=true
+export DATABASE_PRIMARY_ADDRESS=127.0.0.1:5432
+export DATABASE_PRIMARY_USERNAME=postgres
+export DATABASE_PRIMARY_PASSWORD=password
+export DATABASE_PRIMARY_DATABASE=wiki_x_dev
+export DATABASE_PRIMARY_PARAMS=sslmode=disable
 go run ./cmd/wiki_x migrate -config examples/community/wiki_x.yaml
 go run ./cmd/wiki_x import  -config examples/community/wiki_x.yaml
 printf 'change-me-please\n' | go run ./cmd/wiki_x user create -config examples/community/wiki_x.yaml -name admin -admin

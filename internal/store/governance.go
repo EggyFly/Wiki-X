@@ -33,12 +33,12 @@ func (s *Store) Unwatch(ctx context.Context, userID int64, route string) error {
 
 func (s *Store) IsWatched(ctx context.Context, userID int64, route string) (bool, error) {
 	var watched bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM watchlist WHERE user_id = $1 AND route = $2)`, userID, route).Scan(&watched)
+	err := s.read().QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM watchlist WHERE user_id = $1 AND route = $2)`, userID, route).Scan(&watched)
 	return watched, err
 }
 
 func (s *Store) ListWatchedRevisions(ctx context.Context, userID int64, limit int) ([]*WatchedPage, error) {
-	rows, err := s.pool.Query(ctx, `SELECT w.route, COALESCE(p.title, w.route), p.updated_at,
+	rows, err := s.read().Query(ctx, `SELECT w.route, COALESCE(p.title, w.route), p.updated_at,
 			r.id, COALESCE(u.name, ''), COALESCE(r.comment, ''), r.created_at
 		FROM watchlist w
 		LEFT JOIN pages p ON p.route = w.route
@@ -84,7 +84,7 @@ func (s *Store) AddComment(ctx context.Context, route string, userID int64, body
 }
 
 func (s *Store) ListComments(ctx context.Context, route string, includeHidden bool) ([]*Comment, error) {
-	rows, err := s.pool.Query(ctx, `SELECT c.id, c.route, c.user_id, COALESCE(u.name, ''), c.body, c.status,
+	rows, err := s.read().Query(ctx, `SELECT c.id, c.route, c.user_id, COALESCE(u.name, ''), c.body, c.status,
 			COALESCE(rep.total, 0), COALESCE(rep.reasons, '{}'), c.created_at
 		FROM comments c
 		LEFT JOIN users u ON u.id = c.user_id
@@ -214,7 +214,7 @@ func (s *Store) ListReports(ctx context.Context, status string, limit, offset in
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.pool.Query(ctx, `SELECT r.id, r.comment_id, c.route,
+	rows, err := s.read().Query(ctx, `SELECT r.id, r.comment_id, c.route,
 			CASE WHEN char_length(c.body) > 300 THEN left(c.body, 300) || '…' ELSE c.body END,
 			c.status, COALESCE(u.name, ''), r.reason, r.status, r.created_at,
 			r.resolved_at, COALESCE(ru.name, '')
@@ -249,6 +249,6 @@ func (s *Store) CountReports(ctx context.Context, status string) (int, error) {
 		status = "open"
 	}
 	var count int
-	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM comment_reports WHERE ($1 = 'all' OR status = $1)`, status).Scan(&count)
+	err := s.read().QueryRow(ctx, `SELECT count(*) FROM comment_reports WHERE ($1 = 'all' OR status = $1)`, status).Scan(&count)
 	return count, err
 }

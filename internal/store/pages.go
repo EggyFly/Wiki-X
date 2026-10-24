@@ -13,7 +13,7 @@ import (
 )
 
 func (s *Store) Load(ctx context.Context) ([]*content.Page, error) {
-	rows, err := s.pool.Query(ctx, `SELECT p.route, p.title, p.description, p.body, p.tags, p.version, p.translation_key,
+	rows, err := s.read().Query(ctx, `SELECT p.route, p.title, p.description, p.body, p.tags, p.version, p.translation_key,
 			p.protected, p.protection_level, p.updated_at, COALESCE(e.name, '')
 		FROM pages p LEFT JOIN entities e ON e.id = p.entity_id
 		WHERE p.draft = false AND p.deleted_at IS NULL ORDER BY p.route`)
@@ -317,7 +317,7 @@ func sameRevision(left, right *int64) bool {
 }
 
 func (s *Store) ListRevisions(ctx context.Context, route string, viewerID int64, canReview bool) ([]*Revision, error) {
-	rows, err := s.pool.Query(ctx, `SELECT r.id, r.page_id, p.route, r.title, r.description, r.body, r.tags,
+	rows, err := s.read().Query(ctx, `SELECT r.id, r.page_id, p.route, r.title, r.description, r.body, r.tags,
 			r.author_id, COALESCE(u.name, ''), r.comment, r.status, r.base_revision_id, r.version, r.translation_key,
 			r.translation_base_version, r.entity_id, r.created_at, r.published_at
 		FROM page_revisions r
@@ -357,7 +357,7 @@ func (s *Store) GetRevision(ctx context.Context, revisionID int64) (*Revision, e
 }
 
 func (s *Store) ListPendingRevisions(ctx context.Context, limit int) ([]*Revision, error) {
-	rows, err := s.pool.Query(ctx, `SELECT r.id, r.page_id, p.route, r.title, r.description, r.body, r.tags,
+	rows, err := s.read().Query(ctx, `SELECT r.id, r.page_id, p.route, r.title, r.description, r.body, r.tags,
 			r.author_id, COALESCE(u.name, ''), r.comment, r.status, r.base_revision_id, r.version, r.translation_key,
 			r.translation_base_version, r.entity_id, r.created_at, r.published_at
 		FROM page_revisions r
@@ -373,7 +373,7 @@ func (s *Store) ListPendingRevisions(ctx context.Context, limit int) ([]*Revisio
 
 func (s *Store) CountPendingRevisions(ctx context.Context) (int, error) {
 	var count int
-	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM page_revisions r JOIN pages p ON p.id = r.page_id
+	err := s.read().QueryRow(ctx, `SELECT count(*) FROM page_revisions r JOIN pages p ON p.id = r.page_id
 		WHERE r.status = 'pending' AND p.deleted_at IS NULL`).Scan(&count)
 	return count, err
 }

@@ -152,9 +152,22 @@ cache:
 
 ```yaml
 database:
-  url: ""                # 建议通过 DATABASE_URL 提供
+  same: false            # true 时从库复用主库
+  maintenance_database: postgres
+  primary:
+    address: 127.0.0.1:5432
+    username: postgres
+    password: ""         # 建议通过 DATABASE_PRIMARY_PASSWORD 提供
+    database: wiki_x_dev
+    params: sslmode=disable
+  replica:
+    address: 127.0.0.1:5433
+    username: postgres
+    password: ""         # 建议通过 DATABASE_REPLICA_PASSWORD 提供
+    database: wiki_x_dev
+    params: sslmode=disable
   max_conns: 10
-  auto_migrate: false
+  auto_migrate: true
 auth:
   secure_cookies: true   # HTTPS 环境必须开启
   session_ttl: 336h
@@ -165,7 +178,12 @@ auth:
     redirect_url: ""     # 留空时使用 base_url + /auth/github/callback
 ```
 
-Git 模式不依赖数据库; 配置 `database.url` 后才会启用账号、审核、后台和站内编辑 PR. PG 模式必须配置数据库.
+`same: false` 时从库配置必填. 写操作、迁移、会话和账号强一致读走主库; 页面加载、搜索、审计和多数内容只读查询走从库.
+从库连接错误时只读查询会回退主库; 从库有复制延迟时, 刚发布的内容可能短暂读到旧数据, 需要强一致时可以临时把 `same` 设回 `true`.
+`params` 使用 URL query 形式, 例如 `sslmode=disable&connect_timeout=5`, 前面带不带 `?` 都可以.
+可用环境变量: `DATABASE_SAME`, `DATABASE_MAINTENANCE_DATABASE`, `DATABASE_PRIMARY_ADDRESS`, `DATABASE_PRIMARY_USERNAME`, `DATABASE_PRIMARY_PASSWORD`, `DATABASE_PRIMARY_DATABASE`, `DATABASE_PRIMARY_PARAMS`, 以及对应的 `DATABASE_REPLICA_*`.
+
+Git 模式不依赖数据库; 配置主库后才会启用账号、审核、后台和站内编辑 PR. PG 模式必须配置主库.
 
 ## 6 邮件与密码找回
 
@@ -260,7 +278,8 @@ comment:
 
 敏感配置优先使用环境变量:
 
-- `DATABASE_URL`
+- `DATABASE_PRIMARY_PASSWORD`
+- `DATABASE_REPLICA_PASSWORD`
 - `GITHUB_CLIENT_ID`
 - `GITHUB_CLIENT_SECRET`
 - `GITHUB_WEBHOOK_SECRET`
@@ -466,6 +485,9 @@ ratelimit:
 ## 18 运维命令
 
 ```bash
+# 初始化数据库、执行迁移, 可选导入内容并创建管理员
+go run ./cmd/wiki_x setup -import -admin admin
+
 # 预热全部页面, 默认使用 theme.default, 并发 4
 go run ./cmd/wiki_x warm -config wiki_x.yaml
 
@@ -477,6 +499,7 @@ go run ./cmd/wiki_x audit archive -config wiki_x.yaml
 ```
 
 发布、审核通过、页面保护和删除/恢复都会清理对应路由的旧页面缓存; 缓存键本身包含内容版本, 所以即使清理失败也只会留下到 TTL 为止的旧键.
+`setup` 会在目标库不存在时连接维护库并执行 `CREATE DATABASE`; 维护库默认 `postgres`, 可用 `DATABASE_MAINTENANCE_DATABASE` 修改; 应用账号没有建库权限时, 需要先由 DBA 手动创建数据库.
 
 ## 19 安全默认值
 

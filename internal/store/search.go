@@ -19,7 +19,7 @@ func (s *Store) SearchPages(ctx context.Context, query string, limit int) ([]*Se
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	rows, err := s.pool.Query(ctx, `SELECT route, title,
+	rows, err := s.read().Query(ctx, `SELECT route, title,
 			CASE WHEN strpos(lower(body), lower($1)) > 0
 				THEN substring(body from greatest(strpos(lower(body), lower($1)) - 80, 1) for 240)
 				ELSE left(body, 240) END AS snippet

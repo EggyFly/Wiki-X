@@ -35,7 +35,14 @@ cache:
     db: 0
     prefix: wiki_x
 database:
-  url: ""
+  same: true
+  maintenance_database: postgres
+  primary:
+    address: ""
+    username: ""
+    password: ""
+    database: ""
+    params: ""
   max_conns: 10
   auto_migrate: true
 auth:

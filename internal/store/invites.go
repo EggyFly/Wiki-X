@@ -139,7 +139,7 @@ func (s *Store) ListInvites(ctx context.Context, limit int) ([]*InviteCode, erro
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := s.pool.Query(ctx, `SELECT i.id, i.label, i.max_uses, i.uses, i.expires_at,
+	rows, err := s.read().Query(ctx, `SELECT i.id, i.label, i.max_uses, i.uses, i.expires_at,
 			COALESCE(u.name, ''), i.created_at
 		FROM invite_codes i
 		LEFT JOIN users u ON u.id = i.created_by

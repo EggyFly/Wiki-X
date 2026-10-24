@@ -96,9 +96,29 @@ type RedisConfig struct {
 }
 
 type DatabaseConfig struct {
-	URL         string `yaml:"url"`
-	MaxConns    int32  `yaml:"max_conns"`
-	AutoMigrate bool   `yaml:"auto_migrate"`
+	URL                 string       `yaml:"url"`
+	Same                *bool        `yaml:"same"`
+	MaintenanceDatabase string       `yaml:"maintenance_database"`
+	Primary             DatabaseNode `yaml:"primary"`
+	Replica             DatabaseNode `yaml:"replica"`
+	MaxConns            int32        `yaml:"max_conns"`
+	AutoMigrate         bool         `yaml:"auto_migrate"`
+}
+
+type DatabaseNode struct {
+	Address  string `yaml:"address"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	Database string `yaml:"database"`
+	Params   string `yaml:"params"`
+}
+
+func (c DatabaseConfig) SameDatabase() bool {
+	return c.Same == nil || *c.Same
+}
+
+func (c DatabaseConfig) Configured() bool {
+	return c.URL != "" || c.Primary.Address != "" || c.Primary.Database != ""
 }
 
 type AuthConfig struct {
@@ -271,6 +291,24 @@ func (c *Config) applyEnv() error {
 	}
 	envString("REDIS_PREFIX", &c.Cache.Redis.Prefix)
 	envString("DATABASE_URL", &c.Database.URL)
+	if value := strings.TrimSpace(os.Getenv("DATABASE_SAME")); value != "" {
+		same, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("DATABASE_SAME: %w", err)
+		}
+		c.Database.Same = &same
+	}
+	envString("DATABASE_MAINTENANCE_DATABASE", &c.Database.MaintenanceDatabase)
+	envString("DATABASE_PRIMARY_ADDRESS", &c.Database.Primary.Address)
+	envString("DATABASE_PRIMARY_USERNAME", &c.Database.Primary.Username)
+	envString("DATABASE_PRIMARY_PASSWORD", &c.Database.Primary.Password)
+	envString("DATABASE_PRIMARY_DATABASE", &c.Database.Primary.Database)
+	envString("DATABASE_PRIMARY_PARAMS", &c.Database.Primary.Params)
+	envString("DATABASE_REPLICA_ADDRESS", &c.Database.Replica.Address)
+	envString("DATABASE_REPLICA_USERNAME", &c.Database.Replica.Username)
+	envString("DATABASE_REPLICA_PASSWORD", &c.Database.Replica.Password)
+	envString("DATABASE_REPLICA_DATABASE", &c.Database.Replica.Database)
+	envString("DATABASE_REPLICA_PARAMS", &c.Database.Replica.Params)
 	if err := envInt32("DATABASE_MAX_CONNS", &c.Database.MaxConns); err != nil {
 		return err
 	}
@@ -582,6 +620,21 @@ func (c *Config) setDefault() {
 	if c.Database.MaxConns == 0 {
 		c.Database.MaxConns = 10
 	}
+	c.Database.URL = strings.TrimSpace(c.Database.URL)
+	c.Database.MaintenanceDatabase = strings.TrimSpace(c.Database.MaintenanceDatabase)
+	if c.Database.MaintenanceDatabase == "" {
+		c.Database.MaintenanceDatabase = "postgres"
+	}
+	c.Database.Primary.Address = strings.TrimSpace(c.Database.Primary.Address)
+	c.Database.Primary.Username = strings.TrimSpace(c.Database.Primary.Username)
+	c.Database.Primary.Password = strings.TrimSpace(c.Database.Primary.Password)
+	c.Database.Primary.Database = strings.TrimSpace(c.Database.Primary.Database)
+	c.Database.Primary.Params = strings.TrimSpace(c.Database.Primary.Params)
+	c.Database.Replica.Address = strings.TrimSpace(c.Database.Replica.Address)
+	c.Database.Replica.Username = strings.TrimSpace(c.Database.Replica.Username)
+	c.Database.Replica.Password = strings.TrimSpace(c.Database.Replica.Password)
+	c.Database.Replica.Database = strings.TrimSpace(c.Database.Replica.Database)
+	c.Database.Replica.Params = strings.TrimSpace(c.Database.Replica.Params)
 	if c.Auth.SessionTTL == "" {
 		c.Auth.SessionTTL = "336h"
 	}
@@ -803,8 +856,37 @@ func (c *Config) check() error {
 			return fmt.Errorf("comment.blocked_words[%d] is too long", i)
 		}
 	}
-	if c.Content.Source == "postgres" && strings.TrimSpace(c.Database.URL) == "" {
-		return fmt.Errorf("database.url is required when content.source is postgres")
+	primarySet := c.Database.Primary.Address != "" || c.Database.Primary.Database != ""
+	replicaSet := c.Database.Replica.Address != "" || c.Database.Replica.Database != ""
+	if primarySet && (c.Database.Primary.Address == "" || c.Database.Primary.Database == "") {
+		return fmt.Errorf("database.primary.address and database.primary.database are required")
+	}
+	if c.Content.Source == "postgres" && c.Database.URL == "" && !primarySet {
+		return fmt.Errorf("database.primary or database.url is required when content.source is postgres")
+	}
+	if !c.Database.SameDatabase() {
+		if !primarySet {
+			return fmt.Errorf("database.primary is required when database.same is false")
+		}
+		if c.Database.Replica.Address == "" || c.Database.Replica.Database == "" {
+			return fmt.Errorf("database.replica.address and database.replica.database are required when database.same is false")
+		}
+	}
+	if replicaSet && !c.Database.SameDatabase() && (c.Database.Replica.Address == "" || c.Database.Replica.Database == "") {
+		return fmt.Errorf("database.replica.address and database.replica.database are required")
+	}
+	if primarySet {
+		if err := validDatabaseParams(c.Database.Primary.Params); err != nil {
+			return fmt.Errorf("database.primary.params: %w", err)
+		}
+	}
+	if replicaSet {
+		if err := validDatabaseParams(c.Database.Replica.Params); err != nil {
+			return fmt.Errorf("database.replica.params: %w", err)
+		}
+	}
+	if strings.ContainsAny(c.Database.MaintenanceDatabase, "/\\ \t\r\n") || c.Database.MaintenanceDatabase == "" {
+		return fmt.Errorf("database.maintenance_database is invalid")
 	}
 	if c.Database.MaxConns < 1 {
 		return fmt.Errorf("database.max_conns must be positive")
@@ -991,6 +1073,15 @@ func (c *Config) check() error {
 func (c AuditConfig) RetentionDuration() time.Duration {
 	value, _ := time.ParseDuration(c.Retention)
 	return value
+}
+
+func validDatabaseParams(value string) error {
+	value = strings.TrimPrefix(strings.TrimSpace(value), "?")
+	if value == "" {
+		return nil
+	}
+	_, err := url.ParseQuery(value)
+	return err
 }
 
 func validOSSBucket(value string) bool {

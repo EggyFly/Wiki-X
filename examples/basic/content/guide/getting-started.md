@@ -120,7 +120,12 @@ content:
 社区模式以 PostgreSQL 为权威内容源, 需要先设置数据库连接:
 
 ```bash
-export DATABASE_URL='postgres://postgres:password@127.0.0.1:5432/wiki_x_dev?sslmode=disable'
+export DATABASE_SAME=true
+export DATABASE_PRIMARY_ADDRESS=127.0.0.1:5432
+export DATABASE_PRIMARY_USERNAME=postgres
+export DATABASE_PRIMARY_PASSWORD=password
+export DATABASE_PRIMARY_DATABASE=wiki_x_dev
+export DATABASE_PRIMARY_PARAMS=sslmode=disable
 go run ./cmd/wiki_x migrate -config examples/community/wiki_x.yaml
 go run ./cmd/wiki_x import  -config examples/community/wiki_x.yaml
 go run ./cmd/wiki_x serve   -config examples/community/wiki_x.yaml
