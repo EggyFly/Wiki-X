@@ -60,6 +60,9 @@ func (s *Store) ListAdminPages(ctx context.Context, status, query string, limit,
 }
 
 func (s *Store) DeletePage(ctx context.Context, route, reason string, actorID int64) error {
+	if !s.revokeEnabled(SectionPage) {
+		return ErrRevokeDisabled
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -86,13 +89,29 @@ func (s *Store) RestorePage(ctx context.Context, route string, actorID int64) er
 		return err
 	}
 	defer tx.Rollback(ctx)
-	var title string
-	err = tx.QueryRow(ctx, `UPDATE pages SET deleted_at = NULL, deleted_by = NULL, delete_reason = ''
-		WHERE route = $1 AND deleted_at IS NOT NULL RETURNING title`, route).Scan(&title)
+	var pageID int64
+	err = tx.QueryRow(ctx, `SELECT id FROM pages
+		WHERE route = $1 AND deleted_at IS NOT NULL ORDER BY id DESC LIMIT 1 FOR UPDATE`, route).Scan(&pageID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
+		return err
+	}
+	var occupied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pages
+		WHERE lower(route) = lower($1) AND deleted_at IS NULL)`, route).Scan(&occupied); err != nil {
+		return err
+	}
+	if occupied {
+		return ErrEditConflict
+	}
+	var title string
+	if err := tx.QueryRow(ctx, `UPDATE pages SET deleted_at = NULL, deleted_by = NULL, delete_reason = ''
+		WHERE id = $1 RETURNING title`, pageID).Scan(&title); err != nil {
+		if isUniqueViolation(err) {
+			return ErrEditConflict
+		}
 		return err
 	}
 	if err := logAudit(ctx, tx, actorID, "page.restore", route, ""); err != nil {

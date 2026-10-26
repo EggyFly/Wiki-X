@@ -58,6 +58,8 @@ func TestUIRender(t *testing.T) {
 		T:             i18n.For("zh-CN"),
 	}
 	now := time.Now()
+	consentBase := base
+	consentBase.User = &store.User{Name: "admin"}
 	cases := []struct {
 		name string
 		data any
@@ -109,6 +111,18 @@ func TestUIRender(t *testing.T) {
 				{Code: "en", Label: "English", Missing: true, EditURL: "/edit?route=/en/guide/&translation_key=guide"},
 			},
 		}}}, "翻译管理"},
+		{"admin_oidc", adminOIDCData{baseData: base, Clients: []adminOIDCClient{{
+			OIDCClient:   &store.OIDCClient{ClientID: "wx_test", Name: "Test App", Provider: "Test", RedirectURIs: []string{"https://app.example.com/callback"}},
+			RedirectText: "https://app.example.com/callback",
+		}}}, "OIDC 应用"},
+		{"admin_oidc", adminOIDCData{baseData: base, Error: "invalid app"}, "invalid app"},
+		{"admin_revoked", adminRevokedData{baseData: base, Records: []*store.RevokedRecord{{
+			Kind: "group", ID: "1", Label: "staff", Reason: "deleted", ActorName: "admin", RevokedAt: now,
+		}}}, "已撤销记录"},
+		{"oidc_consent", oidcConsentData{baseData: consentBase,
+			Client: &store.OIDCClient{ClientID: "wx_test", Name: "Test App", Provider: "Test"},
+			Scopes: []oidcConsentScope{{Scope: "openid", Label: base.T["oidc_scope_openid"], Desc: base.T["oidc_scope_openid_desc"]}},
+		}, "授权登录"},
 	}
 	for _, tc := range cases {
 		var buf bytes.Buffer

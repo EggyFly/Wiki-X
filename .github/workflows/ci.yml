@@ -33,6 +33,7 @@ jobs:
       TEST_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/wiki_x_test?sslmode=disable
       TEST_POSTGRES_URL_SERVER: postgres://postgres:postgres@127.0.0.1:5432/wiki_x_test_server?sslmode=disable
       TEST_POSTGRES_URL_AUDIT: postgres://postgres:postgres@127.0.0.1:5432/wiki_x_test_audit?sslmode=disable
+      TEST_POSTGRES_URL_OIDC: postgres://postgres:postgres@127.0.0.1:5432/wiki_x_test_oidc?sslmode=disable
       TEST_REDIS_ADDR: 127.0.0.1:6379
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +56,7 @@ jobs:
           PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wiki_x_test"
           PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wiki_x_test_server"
           PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wiki_x_test_audit"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d postgres -c "create database wiki_x_test_oidc"
       - name: Test
         run: go test -race -count=1 ./...
       - name: Check frontend JavaScript

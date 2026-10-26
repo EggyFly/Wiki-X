@@ -10,6 +10,9 @@ import (
 )
 
 func (s *Store) DeleteUser(ctx context.Context, userID, actorID int64, reason string) (string, error) {
+	if !s.revokeEnabled(SectionUser) {
+		return "", ErrRevokeDisabled
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return "", err
@@ -58,8 +61,6 @@ func (s *Store) DeleteUser(ctx context.Context, userID, actorID int64, reason st
 		`DELETE FROM sessions WHERE user_id = $1`,
 		`DELETE FROM recovery_codes WHERE user_id = $1`,
 		`DELETE FROM email_tokens WHERE user_id = $1`,
-		`DELETE FROM watchlist WHERE user_id = $1`,
-		`DELETE FROM user_groups WHERE user_id = $1`,
 		`UPDATE comments SET user_id = NULL WHERE user_id = $1`,
 		`UPDATE comment_reports SET reporter_id = NULL WHERE reporter_id = $1`,
 		`UPDATE comment_reports SET resolved_by = NULL WHERE resolved_by = $1`,
@@ -68,6 +69,16 @@ func (s *Store) DeleteUser(ctx context.Context, userID, actorID int64, reason st
 		`UPDATE pages SET deleted_by = NULL WHERE deleted_by = $1`,
 	} {
 		if _, err := tx.Exec(ctx, statement, userID); err != nil {
+			return "", err
+		}
+	}
+	for _, statement := range []string{
+		`UPDATE watchlist SET revoked_at=now(), revoked_by=NULLIF($2,0), revoke_reason='user deleted'
+			WHERE user_id=$1 AND revoked_at IS NULL`,
+		`UPDATE user_groups SET revoked_at=now(), revoked_by=NULLIF($2,0), revoke_reason='user deleted'
+			WHERE user_id=$1 AND revoked_at IS NULL`,
+	} {
+		if _, err := tx.Exec(ctx, statement, userID, actorID); err != nil {
 			return "", err
 		}
 	}
@@ -134,7 +145,8 @@ func (s *Store) ExportUserData(ctx context.Context, userID int64) (*UserExport, 
 	result := &UserExport{GeneratedAt: time.Now().UTC()}
 	if err := s.pool.QueryRow(ctx, `SELECT u.id, u.name, u.email, u.email_verified, u.created_at,
 			COALESCE(array_agg(g.name ORDER BY g.name) FILTER (WHERE g.name IS NOT NULL), '{}')
-		FROM users u LEFT JOIN user_groups ug ON ug.user_id = u.id LEFT JOIN groups g ON g.id = ug.group_id
+		FROM users u LEFT JOIN user_groups ug ON ug.user_id = u.id AND ug.revoked_at IS NULL
+		LEFT JOIN groups g ON g.id = ug.group_id AND g.revoked_at IS NULL
 		WHERE u.id = $1 AND u.deleted_at IS NULL GROUP BY u.id`, userID).
 		Scan(&result.Profile.ID, &result.Profile.Name, &result.Profile.Email, &result.Profile.EmailVerified,
 			&result.Profile.CreatedAt, &result.Profile.Groups); err != nil {

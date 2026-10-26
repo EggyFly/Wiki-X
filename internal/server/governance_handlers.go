@@ -90,6 +90,10 @@ func (a *App) handleWatch(w http.ResponseWriter, r *http.Request) {
 		err = a.store.Watch(r.Context(), session.User.ID, route)
 	}
 	if err != nil {
+		if errors.Is(err, store.ErrRevokeDisabled) {
+			a.renderDeleteDisabled(w, r)
+			return
+		}
 		slog.Error("update watchlist failed", "err", err)
 		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法更新监视列表.")
 		return

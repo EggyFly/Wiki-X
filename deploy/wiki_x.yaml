@@ -31,6 +31,14 @@ database:
     params: ""
   max_conns: 10
   auto_migrate: true
+oidc:
+  enabled: false
+  issuer: ""
+  key_encryption_key: ""
+  access_ttl: 5m
+  id_ttl: 5m
+  refresh_ttl: 168h
+  code_ttl: 2m
 auth:
   secure_cookies: false
   session_ttl: 336h

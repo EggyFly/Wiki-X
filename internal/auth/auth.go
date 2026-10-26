@@ -472,6 +472,7 @@ func (m *Manager) CleanupSessions(ctx context.Context, interval time.Duration) {
 		case <-ticker.C:
 			_ = m.store.DeleteExpiredSessions(ctx)
 			_ = m.store.DeleteExpiredEmailTokens(ctx)
+			_ = m.store.CleanupOIDC(ctx)
 		}
 	}
 }

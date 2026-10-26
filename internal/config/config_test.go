@@ -332,6 +332,55 @@ func TestLoadPrimaryReplicaDatabase(t *testing.T) {
 	}
 }
 
+func TestLoadOIDCConfig(t *testing.T) {
+	const key = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	body := "site:\n  title: Test\n  base_url: https://wiki.example.com/\ndatabase:\n  url: postgres://postgres@127.0.0.1:5432/wiki_x\noidc:\n  enabled: true\n  key_encryption_key: " + key + "\n"
+	path := writeConfig(t, body)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.OIDC.Enabled || cfg.OIDC.Issuer != "https://wiki.example.com" || cfg.OIDC.AccessTTL != "5m" {
+		t.Fatalf("oidc = %+v", cfg.OIDC)
+	}
+	for _, body := range []string{
+		"site:\n  base_url: https://wiki.example.com\noidc:\n  enabled: true\n",
+		"site:\n  base_url: https://wiki.example.com\ndatabase:\n  url: postgres://postgres@127.0.0.1/wiki_x\noidc:\n  enabled: true\n  key_encryption_key: " + key + "\n  issuer: ftp://wiki.example.com\n",
+		"site:\n  base_url: https://wiki.example.com\ndatabase:\n  url: postgres://postgres@127.0.0.1/wiki_x\noidc:\n  enabled: true\n  key_encryption_key: " + key + "\n  issuer: https://wiki.example.com/sub\n",
+		"site:\n  base_url: https://wiki.example.com\ndatabase:\n  url: postgres://postgres@127.0.0.1/wiki_x\noidc:\n  enabled: true\n  key_encryption_key: bad\n",
+		"site:\n  base_url: https://wiki.example.com\ndatabase:\n  url: postgres://postgres@127.0.0.1/wiki_x\noidc:\n  enabled: true\n  key_encryption_key: " + key + "\n  access_ttl: nope\n",
+	} {
+		path = writeConfig(t, body)
+		if _, err := Load(path); err == nil {
+			t.Fatalf("expected oidc error for %q", body)
+		}
+	}
+}
+
+func TestLoadRevokePolicy(t *testing.T) {
+	path := writeConfig(t, "site:\n  title: Test\n")
+	policyPath := filepath.Join(filepath.Dir(path), "revoke.json")
+	if err := os.WriteFile(policyPath, []byte(`{"sections":{"group":false}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Revoke.Enabled("group") {
+		t.Fatal("group revoke should be disabled")
+	}
+	if !cfg.Revoke.Enabled("entity") {
+		t.Fatal("missing section should default to enabled")
+	}
+	if err := os.WriteFile(policyPath, []byte(`{"sections":{"unknown":false}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("unknown section should fail")
+	}
+}
+
 func TestLoadRejectsUnknownField(t *testing.T) {
 	path := writeConfig(t, "site:\n  titel: typo\n")
 	if _, err := Load(path); err == nil {

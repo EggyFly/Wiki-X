@@ -285,6 +285,8 @@ func (a *App) renderGroupError(w http.ResponseWriter, r *http.Request, err error
 		a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "内置用户组不能删除.")
 	case errors.Is(err, store.ErrLastAdmin):
 		a.renderMessage(w, r, http.StatusConflict, "操作失败", "必须保留至少一个启用的管理员.")
+	case errors.Is(err, store.ErrRevokeDisabled):
+		a.renderDeleteDisabled(w, r)
 	case errors.Is(err, store.ErrNotFound):
 		a.renderMessage(w, r, http.StatusNotFound, "用户组不存在", "没有找到这个用户.")
 	default:

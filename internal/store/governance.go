@@ -22,18 +22,37 @@ type WatchedPage struct {
 
 func (s *Store) Watch(ctx context.Context, userID int64, route string) error {
 	_, err := s.pool.Exec(ctx, `INSERT INTO watchlist (user_id, route) VALUES ($1, $2)
-		ON CONFLICT (user_id, route) DO NOTHING`, userID, route)
+		ON CONFLICT (user_id, route) DO UPDATE SET revoked_at=NULL, revoked_by=NULL, revoke_reason='', created_at=now()`, userID, route)
 	return err
 }
 
 func (s *Store) Unwatch(ctx context.Context, userID int64, route string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM watchlist WHERE user_id = $1 AND route = $2`, userID, route)
-	return err
+	if !s.revokeEnabled(SectionWatchlist) {
+		return ErrRevokeDisabled
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `UPDATE watchlist
+		SET revoked_at=now(), revoked_by=$1, revoke_reason='unwatch'
+		WHERE user_id = $1 AND route = $2 AND revoked_at IS NULL`, userID, route)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		if err := logAudit(ctx, tx, userID, "watch.remove", route, ""); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) IsWatched(ctx context.Context, userID int64, route string) (bool, error) {
 	var watched bool
-	err := s.read().QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM watchlist WHERE user_id = $1 AND route = $2)`, userID, route).Scan(&watched)
+	err := s.read().QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM watchlist
+		WHERE user_id = $1 AND route = $2 AND revoked_at IS NULL)`, userID, route).Scan(&watched)
 	return watched, err
 }
 
@@ -49,7 +68,7 @@ func (s *Store) ListWatchedRevisions(ctx context.Context, userID int64, limit in
 			ORDER BY rv.created_at DESC LIMIT 1
 		) r ON true
 		LEFT JOIN users u ON u.id = r.author_id
-		WHERE w.user_id = $1
+		WHERE w.user_id = $1 AND w.revoked_at IS NULL
 		ORDER BY w.created_at DESC LIMIT $2`, userID, limit)
 	if err != nil {
 		return nil, err

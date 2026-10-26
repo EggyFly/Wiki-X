@@ -22,6 +22,7 @@ import (
 	"github.com/EggyFly/Wiki-X/internal/i18n"
 	"github.com/EggyFly/Wiki-X/internal/mail"
 	mediastore "github.com/EggyFly/Wiki-X/internal/media"
+	"github.com/EggyFly/Wiki-X/internal/oidc"
 	"github.com/EggyFly/Wiki-X/internal/render"
 	"github.com/EggyFly/Wiki-X/internal/search"
 	"github.com/EggyFly/Wiki-X/internal/site"
@@ -44,6 +45,7 @@ type App struct {
 	metrics       *metricsRegistry
 	searchClient  *search.Client
 	mediaStore    mediastore.Store
+	oidc          *oidc.Service
 }
 
 func NewApp(cfg *config.Config, s *site.Site, data *store.Store, authManager *auth.Manager, syncContent func(context.Context) error) (*App, error) {
@@ -75,6 +77,15 @@ func NewApp(cfg *config.Config, s *site.Site, data *store.Store, authManager *au
 	if cfg != nil && cfg.Media.Storage == "oss" && cfg.Media.OSS.ACL == "public-read-write" {
 		slog.Warn("media OSS ACL allows anonymous writes", "bucket", cfg.Media.OSS.Bucket)
 	}
+	var oidcService *oidc.Service
+	if cfg != nil && cfg.OIDC.Enabled {
+		keyCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		oidcService, err = oidc.New(keyCtx, cfg.OIDC, data)
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("init oidc: %w", err)
+		}
+	}
 	app := &App{
 		cfg:           cfg,
 		site:          s,
@@ -87,6 +98,7 @@ func NewApp(cfg *config.Config, s *site.Site, data *store.Store, authManager *au
 		markdown:      render.NewMarkdown(),
 		metrics:       newMetrics(),
 		mediaStore:    mediaStore,
+		oidc:          oidcService,
 	}
 	if cfg != nil && cfg.Search.Backend == "meilisearch" {
 		app.searchClient = search.NewClient(cfg.Search.URL, cfg.Search.APIKey, cfg.Search.Index)
@@ -157,6 +169,16 @@ func (a *App) Handler() http.Handler {
 	}
 	if a.cfg != nil && a.cfg.GitHub.WebhookSecret != "" {
 		mux.HandleFunc("POST /-/webhooks/github", a.handleGitHubWebhook)
+	}
+	if a.oidc != nil {
+		mux.HandleFunc("GET /.well-known/openid-configuration", a.handleOIDCDiscovery)
+		mux.HandleFunc("GET /.well-known/jwks.json", a.handleOIDCJWKS)
+		mux.HandleFunc("GET /oauth2/authorize", a.handleOIDCAuthorize)
+		mux.HandleFunc("POST /oauth2/authorize", a.handleOIDCConsent)
+		mux.HandleFunc("POST /oauth2/token", a.handleOIDCToken)
+		mux.HandleFunc("GET /oauth2/userinfo", a.handleOIDCUserInfo)
+		mux.HandleFunc("POST /oauth2/userinfo", a.handleOIDCUserInfo)
+		mux.HandleFunc("POST /oauth2/revoke", a.handleOIDCRevoke)
 	}
 
 	if a.ui != nil {
@@ -235,6 +257,15 @@ func (a *App) Handler() http.Handler {
 		mux.HandleFunc("GET /admin/invites", a.handleAdminInvites)
 		mux.HandleFunc("POST /admin/invites/create", a.handleAdminInviteCreate)
 		mux.HandleFunc("POST /admin/invites/delete", a.handleAdminInviteDelete)
+		mux.HandleFunc("GET /admin/revoked", a.handleAdminRevoked)
+		mux.HandleFunc("POST /admin/revoked/restore", a.handleAdminRevokedRestore)
+		if a.oidc != nil {
+			mux.HandleFunc("GET /admin/oidc", a.handleAdminOIDC)
+			mux.HandleFunc("POST /admin/oidc/create", a.handleAdminOIDCCreate)
+			mux.HandleFunc("POST /admin/oidc/update", a.handleAdminOIDCUpdate)
+			mux.HandleFunc("POST /admin/oidc/reset-secret", a.handleAdminOIDCReset)
+			mux.HandleFunc("POST /admin/oidc/delete", a.handleAdminOIDCDelete)
+		}
 		switch a.cfg.Content.Source {
 		case "postgres":
 			mux.HandleFunc("GET /edit", a.handleEditPage)
@@ -450,6 +481,10 @@ func (a *App) redirect(w http.ResponseWriter, r *http.Request, target string, st
 	http.Redirect(w, r, target, status)
 }
 
+func (a *App) renderDeleteDisabled(w http.ResponseWriter, r *http.Request) {
+	a.renderMessage(w, r, http.StatusForbidden, "操作失败", "该版块的删除已停用.")
+}
+
 func safeNext(next string) string {
 	next = strings.TrimSpace(next)
 	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.Contains(next, "\\") {
@@ -569,6 +604,8 @@ func (a *App) noticeTextFor(lang, code string) string {
 		return i18n.Text(lang, "notice_invite_created")
 	case "invite_deleted":
 		return i18n.Text(lang, "notice_invite_deleted")
+	case "revoked_restored":
+		return i18n.Text(lang, "revoked_restored")
 	default:
 		return ""
 	}

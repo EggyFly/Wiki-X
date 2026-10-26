@@ -17,8 +17,9 @@ func (s *Store) ListGroups(ctx context.Context) ([]*Group, error) {
 			COALESCE(array_agg(DISTINCT gr.right_name ORDER BY gr.right_name) FILTER (WHERE gr.right_name IS NOT NULL), '{}'),
 			count(DISTINCT ug.user_id)
 		FROM groups g
-		LEFT JOIN group_rights gr ON gr.group_id = g.id
-		LEFT JOIN user_groups ug ON ug.group_id = g.id
+		LEFT JOIN group_rights gr ON gr.group_id = g.id AND gr.revoked_at IS NULL
+		LEFT JOIN user_groups ug ON ug.group_id = g.id AND ug.revoked_at IS NULL
+		WHERE g.revoked_at IS NULL
 		GROUP BY g.id
 		ORDER BY g.name`)
 	if err != nil {
@@ -85,7 +86,7 @@ func (s *Store) SetGroupRights(ctx context.Context, groupID int64, rights []stri
 	}
 
 	var name string
-	err = tx.QueryRow(ctx, `SELECT name FROM groups WHERE id = $1 FOR UPDATE`, groupID).Scan(&name)
+	err = tx.QueryRow(ctx, `SELECT name FROM groups WHERE id = $1 AND revoked_at IS NULL FOR UPDATE`, groupID).Scan(&name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -94,7 +95,7 @@ func (s *Store) SetGroupRights(ctx context.Context, groupID int64, rights []stri
 	}
 	var hadManage bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM group_rights
-		WHERE group_id = $1 AND right_name = $2)`, groupID, RightManageUsers).Scan(&hadManage); err != nil {
+		WHERE group_id = $1 AND right_name = $2 AND revoked_at IS NULL)`, groupID, RightManageUsers).Scan(&hadManage); err != nil {
 		return err
 	}
 	if hadManage && !containsString(rights, RightManageUsers) {
@@ -107,11 +108,15 @@ func (s *Store) SetGroupRights(ctx context.Context, groupID int64, rights []stri
 		}
 	}
 
-	if _, err := tx.Exec(ctx, `DELETE FROM group_rights WHERE group_id = $1`, groupID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE group_rights
+		SET revoked_at=now(), revoked_by=NULLIF($2,0), revoke_reason='group rights update'
+		WHERE group_id=$1 AND revoked_at IS NULL AND NOT (right_name = ANY($3))`, groupID, actorID, rights); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO group_rights (group_id, right_name)
-		SELECT $1, unnest($2::text[])`, groupID, rights); err != nil {
+		SELECT $1, unnest($2::text[])
+		ON CONFLICT (group_id, right_name) DO UPDATE
+		SET revoked_at=NULL, revoked_by=NULL, revoke_reason=''`, groupID, rights); err != nil {
 		return err
 	}
 	if err := logAudit(ctx, tx, actorID, "group.rights", name, strings.Join(rights, ",")); err != nil {
@@ -121,6 +126,9 @@ func (s *Store) SetGroupRights(ctx context.Context, groupID int64, rights []stri
 }
 
 func (s *Store) DeleteGroup(ctx context.Context, groupID, actorID int64) error {
+	if !s.revokeEnabled(SectionGroup) {
+		return ErrRevokeDisabled
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -131,7 +139,7 @@ func (s *Store) DeleteGroup(ctx context.Context, groupID, actorID int64) error {
 	}
 
 	var name string
-	err = tx.QueryRow(ctx, `SELECT name FROM groups WHERE id = $1 FOR UPDATE`, groupID).Scan(&name)
+	err = tx.QueryRow(ctx, `SELECT name FROM groups WHERE id = $1 AND revoked_at IS NULL FOR UPDATE`, groupID).Scan(&name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -143,7 +151,7 @@ func (s *Store) DeleteGroup(ctx context.Context, groupID, actorID int64) error {
 	}
 	var hasManage bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM group_rights
-		WHERE group_id = $1 AND right_name = $2)`, groupID, RightManageUsers).Scan(&hasManage); err != nil {
+		WHERE group_id = $1 AND right_name = $2 AND revoked_at IS NULL)`, groupID, RightManageUsers).Scan(&hasManage); err != nil {
 		return err
 	}
 	if hasManage {
@@ -155,10 +163,19 @@ func (s *Store) DeleteGroup(ctx context.Context, groupID, actorID int64) error {
 			return ErrLastAdmin
 		}
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM groups WHERE id = $1`, groupID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE groups
+		SET revoked_at=now(), revoked_by=NULLIF($2,0), revoke_reason='deleted'
+		WHERE id=$1 AND revoked_at IS NULL`, groupID, actorID); err != nil {
 		return err
 	}
-	if err := logAudit(ctx, tx, actorID, "group.delete", name, ""); err != nil {
+	for _, table := range []string{"group_rights", "user_groups"} {
+		if _, err := tx.Exec(ctx, `UPDATE `+table+`
+			SET revoked_at=now(), revoked_by=NULLIF($2,0), revoke_reason='group deleted'
+			WHERE group_id=$1 AND revoked_at IS NULL`, groupID, actorID); err != nil {
+			return err
+		}
+	}
+	if err := logAudit(ctx, tx, actorID, "group.delete", name, "revoked"); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -169,7 +186,9 @@ func (s *Store) userHasRightTx(ctx context.Context, tx pgx.Tx, userID int64, rig
 	err := tx.QueryRow(ctx, `SELECT EXISTS (
 		SELECT 1 FROM user_groups ug
 		JOIN group_rights gr ON gr.group_id = ug.group_id
-		WHERE ug.user_id = $1 AND gr.right_name = $2)`, userID, right).Scan(&exists)
+		JOIN groups g ON g.id = ug.group_id
+		WHERE ug.user_id = $1 AND gr.right_name = $2
+		AND ug.revoked_at IS NULL AND gr.revoked_at IS NULL AND g.revoked_at IS NULL)`, userID, right).Scan(&exists)
 	return exists, err
 }
 
@@ -178,7 +197,8 @@ func (s *Store) groupsHaveRight(ctx context.Context, tx pgx.Tx, groups []string,
 	err := tx.QueryRow(ctx, `SELECT EXISTS (
 		SELECT 1 FROM groups g
 		JOIN group_rights gr ON gr.group_id = g.id
-		WHERE g.name = ANY($1) AND gr.right_name = $2)`, groups, right).Scan(&exists)
+		WHERE g.name = ANY($1) AND gr.right_name = $2
+		AND g.revoked_at IS NULL AND gr.revoked_at IS NULL)`, groups, right).Scan(&exists)
 	return exists, err
 }
 
@@ -187,7 +207,9 @@ func countManagersExceptUser(ctx context.Context, tx pgx.Tx, userID int64) (int,
 	err := tx.QueryRow(ctx, `SELECT count(DISTINCT u.id) FROM users u
 		JOIN user_groups ug ON ug.user_id = u.id
 		JOIN group_rights gr ON gr.group_id = ug.group_id
-		WHERE gr.right_name = $2 AND u.disabled = false AND u.deleted_at IS NULL AND u.id <> $1`, userID, RightManageUsers).Scan(&count)
+		JOIN groups g ON g.id = ug.group_id
+		WHERE gr.right_name = $2 AND u.disabled = false AND u.deleted_at IS NULL AND u.id <> $1
+		AND ug.revoked_at IS NULL AND gr.revoked_at IS NULL AND g.revoked_at IS NULL`, userID, RightManageUsers).Scan(&count)
 	return count, err
 }
 
@@ -196,7 +218,9 @@ func countManagersExceptGroup(ctx context.Context, tx pgx.Tx, groupID int64) (in
 	err := tx.QueryRow(ctx, `SELECT count(DISTINCT u.id) FROM users u
 		JOIN user_groups ug ON ug.user_id = u.id
 		JOIN group_rights gr ON gr.group_id = ug.group_id
-		WHERE gr.right_name = $2 AND u.disabled = false AND u.deleted_at IS NULL AND ug.group_id <> $1`, groupID, RightManageUsers).Scan(&count)
+		JOIN groups g ON g.id = ug.group_id
+		WHERE gr.right_name = $2 AND u.disabled = false AND u.deleted_at IS NULL AND ug.group_id <> $1
+		AND ug.revoked_at IS NULL AND gr.revoked_at IS NULL AND g.revoked_at IS NULL`, groupID, RightManageUsers).Scan(&count)
 	return count, err
 }
 

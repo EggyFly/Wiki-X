@@ -71,6 +71,10 @@ func (a *App) handleAdminPageDelete(w http.ResponseWriter, r *http.Request) {
 			a.renderMessage(w, r, http.StatusNotFound, "页面不存在", "没有找到这个页面, 或者它已经被删除.")
 			return
 		}
+		if errors.Is(err, store.ErrRevokeDisabled) {
+			a.renderDeleteDisabled(w, r)
+			return
+		}
 		slog.Error("delete page failed", "err", err, "route", route)
 		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法删除页面.")
 		return
@@ -97,6 +101,10 @@ func (a *App) handleAdminPageRestore(w http.ResponseWriter, r *http.Request) {
 	if err := a.store.RestorePage(r.Context(), route, session.User.ID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			a.renderMessage(w, r, http.StatusNotFound, "页面不存在", "没有找到这个页面, 或者它没有被删除.")
+			return
+		}
+		if errors.Is(err, store.ErrEditConflict) {
+			a.renderMessage(w, r, http.StatusConflict, "恢复失败", "这个路由已经被另一个活动页面占用.")
 			return
 		}
 		slog.Error("restore page failed", "err", err, "route", route)

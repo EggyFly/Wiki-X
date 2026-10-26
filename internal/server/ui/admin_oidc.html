@@ -1,0 +1,112 @@
+{{define "main"}}
+<section class="panel">
+  <h2>{{.T.oidc_create}}</h2>
+  {{if .Error}}<div class="notice notice-error">{{.Error}}</div>{{end}}
+  {{if .NewSecret}}
+  <div class="notice notice-ok">
+    <p><strong>{{.T.oidc_client_id}}:</strong> <code>{{.NewClientID}}</code></p>
+    <p><strong>{{.T.oidc_secret_once}}:</strong> <code>{{.NewSecret}}</code></p>
+    <p>{{.T.oidc_secret_hint}}</p>
+  </div>
+  {{end}}
+  <form method="post" action="/admin/oidc/create" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label class="field">
+      <span>{{.T.oidc_app_name}}</span>
+      <input name="name" maxlength="120" required>
+    </label>
+    <label class="field">
+      <span>{{.T.oidc_provider}}</span>
+      <input name="provider" maxlength="120">
+    </label>
+    <label class="field">
+      <span>{{.T.oidc_logo}}</span>
+      <input name="logo" maxlength="1024" placeholder="https://example.com/logo.png">
+    </label>
+    <label class="field">
+      <span>{{.T.oidc_redirects}}</span>
+      <textarea name="redirects" rows="4" required placeholder="https://app.example.com/oauth2/callback"></textarea>
+      <small class="muted">{{.T.oidc_redirects_hint}}</small>
+    </label>
+    <div class="toolbar">
+      <button class="btn btn-primary" type="submit">{{.T.oidc_create}}</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="toolbar">
+    <div>
+      <h1>{{.T.oidc_admin}}</h1>
+      <p class="muted">{{.T.oidc_admin_hint}}</p>
+    </div>
+    <a class="btn" href="/admin/users">{{.T.user_admin}}</a>
+  </div>
+  {{if .Clients}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{.T.oidc_client_id}}</th>
+          <th>{{.T.oidc_app_name}}</th>
+          <th>{{.T.oidc_redirects}}</th>
+          <th>{{.T.oidc_enabled}}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Clients}}
+        <tr>
+          <td><code>{{.ClientID}}</code></td>
+          <td>
+            <form method="post" action="/admin/oidc/update" class="form-grid">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="client_id" value="{{.ClientID}}">
+              <label class="field">
+                <span>{{$.T.oidc_app_name}}</span>
+                <input name="name" value="{{.Name}}" maxlength="120" required>
+              </label>
+              <label class="field">
+                <span>{{$.T.oidc_provider}}</span>
+                <input name="provider" value="{{.Provider}}" maxlength="120">
+              </label>
+              <label class="field">
+                <span>{{$.T.oidc_logo}}</span>
+                <input name="logo" value="{{.LogoURL}}" maxlength="1024">
+              </label>
+              <label class="field">
+                <span>{{$.T.oidc_redirects}}</span>
+                <textarea name="redirects" rows="3" required>{{.RedirectText}}</textarea>
+              </label>
+              <label><input type="checkbox" name="enabled" value="1"{{if .Enabled}} checked{{end}}> {{$.T.oidc_enabled}}</label>
+              <div class="toolbar">
+                <button class="btn btn-primary" type="submit">{{$.T.save}}</button>
+              </div>
+            </form>
+          </td>
+          <td>
+            {{range .RedirectURIs}}<div><code>{{.}}</code></div>{{end}}
+          </td>
+          <td>{{if .Enabled}}{{$.T.oidc_enabled}}{{else}}{{$.T.disabled}}{{end}}</td>
+          <td>
+            <form method="post" action="/admin/oidc/reset-secret">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="client_id" value="{{.ClientID}}">
+              <button class="btn" type="submit">{{$.T.oidc_reset_secret}}</button>
+            </form>
+            <form method="post" action="/admin/oidc/delete">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="client_id" value="{{.ClientID}}">
+              <button class="btn btn-danger" type="submit">{{$.T.oidc_delete}}</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="muted">{{.T.oidc_admin_hint}}</p>
+  {{end}}
+</section>
+{{end}}

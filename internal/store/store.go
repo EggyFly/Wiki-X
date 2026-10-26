@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/EggyFly/Wiki-X/internal/config"
+	"github.com/EggyFly/Wiki-X/internal/revoke"
 )
 
 //go:embed migrations/*.sql
@@ -22,6 +23,7 @@ var migrationFS embed.FS
 var (
 	ErrNotFound           = errors.New("not found")
 	ErrEditConflict       = errors.New("edit conflict")
+	ErrRevokeDisabled     = errors.New("deleting this section is disabled")
 	ErrIdentityTaken      = errors.New("identity is already linked to another user")
 	ErrProtected          = errors.New("page is protected")
 	ErrBadProtection      = errors.New("unknown protection level")
@@ -42,7 +44,26 @@ var (
 type Store struct {
 	pool    *pgxpool.Pool
 	replica *pgxpool.Pool
+	policy  revoke.Policy
 }
+
+func (s *Store) SetRevokePolicy(policy revoke.Policy) {
+	s.policy = policy
+}
+
+func (s *Store) revokeEnabled(section string) bool {
+	return s.policy.Enabled(section)
+}
+
+const (
+	SectionPage       = revoke.SectionPage
+	SectionUser       = revoke.SectionUser
+	SectionGroup      = revoke.SectionGroup
+	SectionEntity     = revoke.SectionEntity
+	SectionInvite     = revoke.SectionInvite
+	SectionOIDCClient = revoke.SectionOIDCClient
+	SectionWatchlist  = revoke.SectionWatchlist
+)
 
 func Open(ctx context.Context, cfg config.DatabaseConfig) (*Store, error) {
 	primary, err := primaryDSN(cfg)

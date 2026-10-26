@@ -12,9 +12,11 @@
 - Markdown + YAML frontmatter, goldmark GFM 渲染, 默认关闭 raw HTML
 - 按需渲染 + 内存 L1 + Redis L2 缓存 + singleflight 防击穿, ETag/304, gzip, CDN 缓存头
 - 本地账号, argon2id 密码, 数据库 session, CSRF, 权限组
+- 内置 OIDC Provider, 后台登记应用, App Secret 只显示一次并可重置, 支持授权码 + PKCE
 - TOTP 两步验证、恢复码、二维码, 邮箱验证与密码找回, 邀请码/开放注册
 - 站内编辑, 草稿/待审/发布, 编辑冲突检测, 历史版本, diff, 审核队列
 - 页面保护、监视列表、讨论页、评论限流、举报队列、页面软删除/恢复
+- 业务数据删除改为撤销标记, 保留操作人和原因, 写审计日志
 - 组件指令 `wx-infobox`/`wx-notice`/`wx-gallery`/`wx-collapse`/`wx-audio` 和结构化实体图鉴
 - PostgreSQL 全文搜索、进程内搜索和可选 Meilisearch
 - 本地或阿里云 OSS 媒体存储, 支持私有签名 URL、公共读和公共读写
@@ -65,6 +67,8 @@ go run ./cmd/wiki_x serve
 数据库已经存在时 setup 仍然是幂等的，不会删除已有表或数据.
 
 Redis 是可选的, `CACHE_DRIVER=auto` 在没有 Redis 时会自动使用内存缓存.
+
+要让其他站点用 Wiki-X 账号登录, 配置 `OIDC_ENABLED=true`、公开的 `OIDC_ISSUER` 和 32 字节 base64 的 `OIDC_KEY_ENCRYPTION_KEY`, 启动后在 `/admin/oidc` 登记应用并保存只显示一次的 App Secret. 完整流程见 [OIDC Provider](docs/README.md#51-oidc-provider).
 
 ### Docker Compose
 

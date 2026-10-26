@@ -289,6 +289,8 @@ func (a *App) renderEntityError(w http.ResponseWriter, r *http.Request, err erro
 		a.renderMessage(w, r, http.StatusConflict, "操作失败", "字段名称已存在.")
 	case errors.Is(err, store.ErrEntityTypeNotEmpty):
 		a.renderMessage(w, r, http.StatusConflict, "操作失败", "实体类型下还有数据, 不能删除.")
+	case errors.Is(err, store.ErrRevokeDisabled):
+		a.renderDeleteDisabled(w, r)
 	case errors.Is(err, store.ErrNotFound):
 		a.renderMessage(w, r, http.StatusNotFound, "不存在", "没有找到对应的实体或类型.")
 	default:

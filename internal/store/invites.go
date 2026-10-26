@@ -56,7 +56,7 @@ func (s *Store) RegisterUser(ctx context.Context, in RegisterInput) (*User, erro
 	if in.InviteHash != "" {
 		var inviteID int64
 		err := tx.QueryRow(ctx, `UPDATE invite_codes SET uses = uses + 1
-			WHERE code_hash = $1 AND uses < max_uses AND (expires_at IS NULL OR expires_at > now())
+			WHERE code_hash = $1 AND revoked_at IS NULL AND uses < max_uses AND (expires_at IS NULL OR expires_at > now())
 			RETURNING id`, in.InviteHash).Scan(&inviteID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrInviteInvalid
@@ -84,7 +84,7 @@ func (s *Store) RegisterUser(ctx context.Context, in RegisterInput) (*User, erro
 		group = "user"
 	}
 	result, err := tx.Exec(ctx, `INSERT INTO user_groups (user_id, group_id)
-		SELECT $1, id FROM groups WHERE name = $2`, userID, group)
+		SELECT $1, id FROM groups WHERE name = $2 AND revoked_at IS NULL`, userID, group)
 	if err != nil {
 		return nil, err
 	}
@@ -143,6 +143,7 @@ func (s *Store) ListInvites(ctx context.Context, limit int) ([]*InviteCode, erro
 			COALESCE(u.name, ''), i.created_at
 		FROM invite_codes i
 		LEFT JOIN users u ON u.id = i.created_by
+		WHERE i.revoked_at IS NULL
 		ORDER BY i.created_at DESC, i.id DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
@@ -161,20 +162,25 @@ func (s *Store) ListInvites(ctx context.Context, limit int) ([]*InviteCode, erro
 }
 
 func (s *Store) DeleteInvite(ctx context.Context, id, actorID int64) error {
+	if !s.revokeEnabled(SectionInvite) {
+		return ErrRevokeDisabled
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	var label string
-	err = tx.QueryRow(ctx, `DELETE FROM invite_codes WHERE id = $1 RETURNING label`, id).Scan(&label)
+	err = tx.QueryRow(ctx, `UPDATE invite_codes
+		SET revoked_at=now(), revoked_by=NULLIF($2,0), revoke_reason='deleted'
+		WHERE id=$1 AND revoked_at IS NULL RETURNING label`, id, actorID).Scan(&label)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if err := logAudit(ctx, tx, actorID, "invite.delete", label, fmt.Sprintf("id:%d", id)); err != nil {
+	if err := logAudit(ctx, tx, actorID, "invite.delete", label, fmt.Sprintf("id:%d;revoked", id)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -643,8 +643,8 @@ func TestRejectDraftDeletesPage(t *testing.T) {
 	if _, err := s.RejectRevision(ctx, revision.ID, admin.ID, "not needed"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GetPage(ctx, "/new-page/"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expected draft page removed, got %v", err)
+	if page, err := s.GetPage(ctx, "/new-page/"); err != nil || page.DeletedAt == nil {
+		t.Fatalf("expected draft page revoked, got %+v, %v", page, err)
 	}
 }
 

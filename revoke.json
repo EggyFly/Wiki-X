@@ -1,0 +1,11 @@
+{
+  "sections": {
+    "page": true,
+    "user": true,
+    "group": true,
+    "entity": true,
+    "invite": true,
+    "oidc_client": true,
+    "watchlist": true
+  }
+}

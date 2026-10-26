@@ -77,7 +77,7 @@ func EntityKinds() []string {
 }
 
 func (s *Store) ListEntityTypes(ctx context.Context) ([]*EntityType, error) {
-	rows, err := s.read().Query(ctx, `SELECT id, name, label, created_at FROM entity_types ORDER BY name`)
+	rows, err := s.read().Query(ctx, `SELECT id, name, label, created_at FROM entity_types WHERE revoked_at IS NULL ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (s *Store) ListEntityTypes(ctx context.Context) ([]*EntityType, error) {
 		return nil, err
 	}
 	fieldRows, err := s.read().Query(ctx, `SELECT id, type_id, name, label, kind, required, options, sort_order
-		FROM entity_fields ORDER BY type_id, sort_order, name`)
+		FROM entity_fields WHERE revoked_at IS NULL ORDER BY type_id, sort_order, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -167,27 +167,37 @@ func (s *Store) CreateEntityType(ctx context.Context, name, label string, actorI
 }
 
 func (s *Store) DeleteEntityType(ctx context.Context, id, actorID int64) error {
+	if !s.revokeEnabled(SectionEntity) {
+		return ErrRevokeDisabled
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	var count int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM entities WHERE type_id = $1`, id).Scan(&count); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM entities WHERE type_id = $1 AND revoked_at IS NULL`, id).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
 		return ErrEntityTypeNotEmpty
 	}
 	var name string
-	err = tx.QueryRow(ctx, `DELETE FROM entity_types WHERE id = $1 RETURNING name`, id).Scan(&name)
+	err = tx.QueryRow(ctx, `UPDATE entity_types
+		SET revoked_at=now(), revoked_by=NULLIF($2,0), revoke_reason='deleted'
+		WHERE id=$1 AND revoked_at IS NULL RETURNING name`, id, actorID).Scan(&name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if err := logAudit(ctx, tx, actorID, "entity_type.delete", name, ""); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE entity_fields
+		SET revoked_at=now(), revoked_by=NULLIF($2,0), revoke_reason='entity type deleted'
+		WHERE type_id=$1 AND revoked_at IS NULL`, id, actorID); err != nil {
+		return err
+	}
+	if err := logAudit(ctx, tx, actorID, "entity_type.delete", name, "revoked"); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -223,14 +233,14 @@ func (s *Store) AddEntityField(ctx context.Context, typeID int64, name, label, k
 	}
 	defer tx.Rollback(ctx)
 	var typeName string
-	if err := tx.QueryRow(ctx, `SELECT name FROM entity_types WHERE id = $1`, typeID).Scan(&typeName); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT name FROM entity_types WHERE id = $1 AND revoked_at IS NULL`, typeID).Scan(&typeName); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
 		return err
 	}
 	if sortOrder <= 0 {
-		if err := tx.QueryRow(ctx, `SELECT COALESCE(max(sort_order), 0) + 1 FROM entity_fields WHERE type_id = $1`, typeID).Scan(&sortOrder); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT COALESCE(max(sort_order), 0) + 1 FROM entity_fields WHERE type_id = $1 AND revoked_at IS NULL`, typeID).Scan(&sortOrder); err != nil {
 			return err
 		}
 	}
@@ -248,6 +258,9 @@ func (s *Store) AddEntityField(ctx context.Context, typeID int64, name, label, k
 }
 
 func (s *Store) DeleteEntityField(ctx context.Context, id, actorID int64) error {
+	if !s.revokeEnabled(SectionEntity) {
+		return ErrRevokeDisabled
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -256,20 +269,30 @@ func (s *Store) DeleteEntityField(ctx context.Context, id, actorID int64) error 
 	var name, typeName string
 	var typeID int64
 	err = tx.QueryRow(ctx, `SELECT f.name, t.name, f.type_id FROM entity_fields f JOIN entity_types t ON t.id = f.type_id
-		WHERE f.id = $1`, id).Scan(&name, &typeName, &typeID)
+		WHERE f.id = $1 AND f.revoked_at IS NULL AND t.revoked_at IS NULL`, id).Scan(&name, &typeName, &typeID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM entity_fields WHERE id = $1`, id); err != nil {
+	var archived string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(jsonb_object_agg(id::text, value)::text, '{}') FROM (
+		SELECT id, data->$2 AS value FROM entities
+		WHERE type_id=$1 AND data ? $2 ORDER BY id LIMIT 100
+	) x`, typeID, name).Scan(&archived); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE entity_fields
+		SET revoked_at=now(), revoked_by=NULLIF($2,0), revoke_reason='deleted'
+		WHERE id=$1 AND revoked_at IS NULL`, id, actorID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE entities SET data = data - $2 WHERE type_id = $1`, typeID, name); err != nil {
 		return err
 	}
-	if err := logAudit(ctx, tx, actorID, "entity_field.delete", typeName+"."+name, ""); err != nil {
+	if err := logAudit(ctx, tx, actorID, "entity_field.delete", typeName+"."+name,
+		"revoked; archived_values="+truncateAuditText(archived, 4000)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -279,7 +302,7 @@ func (s *Store) ListEntities(ctx context.Context, limit int) ([]*EntityRecord, e
 	if limit <= 0 || limit > 5000 {
 		limit = 500
 	}
-	rows, err := s.read().Query(ctx, entitySelectSQL+` ORDER BY e.type_id, e.name LIMIT $1`, limit)
+	rows, err := s.read().Query(ctx, entitySelectSQL+` WHERE e.revoked_at IS NULL AND t.revoked_at IS NULL ORDER BY e.type_id, e.name LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +341,7 @@ func scanEntityRecord(rows entityRows) (*EntityRecord, error) {
 }
 
 func (s *Store) GetEntity(ctx context.Context, id int64) (*EntityRecord, error) {
-	row := s.read().QueryRow(ctx, entitySelectSQL+` WHERE e.id = $1`, id)
+	row := s.read().QueryRow(ctx, entitySelectSQL+` WHERE e.id = $1 AND e.revoked_at IS NULL AND t.revoked_at IS NULL`, id)
 	item, err := scanEntityRecord(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -327,7 +350,7 @@ func (s *Store) GetEntity(ctx context.Context, id int64) (*EntityRecord, error) 
 }
 
 func (s *Store) GetEntityByName(ctx context.Context, name string) (*EntityRecord, error) {
-	row := s.read().QueryRow(ctx, entitySelectSQL+` WHERE e.name = $1`, name)
+	row := s.read().QueryRow(ctx, entitySelectSQL+` WHERE e.name = $1 AND e.revoked_at IS NULL AND t.revoked_at IS NULL`, name)
 	item, err := scanEntityRecord(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -355,7 +378,7 @@ func (s *Store) SaveEntity(ctx context.Context, in EntityInput) (*EntityRecord, 
 	defer tx.Rollback(ctx)
 
 	var typeName string
-	err = tx.QueryRow(ctx, `SELECT name FROM entity_types WHERE id = $1`, in.TypeID).Scan(&typeName)
+	err = tx.QueryRow(ctx, `SELECT name FROM entity_types WHERE id = $1 AND revoked_at IS NULL`, in.TypeID).Scan(&typeName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -377,7 +400,7 @@ func (s *Store) SaveEntity(ctx context.Context, in EntityInput) (*EntityRecord, 
 	action := "entity.create"
 	if in.ID > 0 {
 		var existingType int64
-		err := tx.QueryRow(ctx, `SELECT type_id FROM entities WHERE id = $1 FOR UPDATE`, in.ID).Scan(&existingType)
+		err := tx.QueryRow(ctx, `SELECT type_id FROM entities WHERE id = $1 AND revoked_at IS NULL FOR UPDATE`, in.ID).Scan(&existingType)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -388,7 +411,7 @@ func (s *Store) SaveEntity(ctx context.Context, in EntityInput) (*EntityRecord, 
 			return nil, ErrBadEntity
 		}
 		err = tx.QueryRow(ctx, `UPDATE entities SET name = $2, label = $3, data = $4, updated_at = now()
-			WHERE id = $1 RETURNING id`, in.ID, name, label, encoded).Scan(&id)
+			WHERE id = $1 AND revoked_at IS NULL RETURNING id`, in.ID, name, label, encoded).Scan(&id)
 		action = "entity.update"
 	} else {
 		err = tx.QueryRow(ctx, `INSERT INTO entities (type_id, name, label, data, created_by)
@@ -413,20 +436,31 @@ func (s *Store) SaveEntity(ctx context.Context, in EntityInput) (*EntityRecord, 
 }
 
 func (s *Store) DeleteEntity(ctx context.Context, id, actorID int64) error {
+	if !s.revokeEnabled(SectionEntity) {
+		return ErrRevokeDisabled
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	var name string
-	err = tx.QueryRow(ctx, `DELETE FROM entities WHERE id = $1 RETURNING name`, id).Scan(&name)
+	err = tx.QueryRow(ctx, `UPDATE entities
+		SET revoked_at=now(), revoked_by=NULLIF($2,0), revoke_reason='deleted'
+		WHERE id=$1 AND revoked_at IS NULL RETURNING name`, id, actorID).Scan(&name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if err := logAudit(ctx, tx, actorID, "entity.delete", name, ""); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE pages SET entity_id=NULL WHERE entity_id=$1`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE page_revisions SET entity_id=NULL WHERE entity_id=$1`, id); err != nil {
+		return err
+	}
+	if err := logAudit(ctx, tx, actorID, "entity.delete", name, "revoked"); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -441,7 +475,8 @@ func (s *Store) LoadEntities(ctx context.Context) ([]*content.Entity, error) {
 	for _, item := range types {
 		typeIndex[item.ID] = item
 	}
-	rows, err := s.read().Query(ctx, `SELECT id, type_id, name, label, data FROM entities ORDER BY name`)
+	rows, err := s.read().Query(ctx, `SELECT id, type_id, name, label, data FROM entities
+		WHERE revoked_at IS NULL AND type_id IN (SELECT id FROM entity_types WHERE revoked_at IS NULL) ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +515,7 @@ func (s *Store) LoadEntities(ctx context.Context) ([]*content.Entity, error) {
 
 func (s *Store) entityFieldsTx(ctx context.Context, tx pgx.Tx, typeID int64) ([]*EntityField, error) {
 	rows, err := tx.Query(ctx, `SELECT id, type_id, name, label, kind, required, options, sort_order
-		FROM entity_fields WHERE type_id = $1 ORDER BY sort_order, name`, typeID)
+		FROM entity_fields WHERE type_id = $1 AND revoked_at IS NULL ORDER BY sort_order, name`, typeID)
 	if err != nil {
 		return nil, err
 	}
@@ -586,7 +621,7 @@ func validEntityKind(kind string) bool {
 }
 
 func cleanOptions(options []string) []string {
-	seen := make(map[string]bool, len(options))
+	seen := make(map[string]bool)
 	result := make([]string, 0, len(options))
 	for _, option := range options {
 		option = strings.TrimSpace(option)
@@ -601,4 +636,12 @@ func cleanOptions(options []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func truncateAuditText(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit]) + "..."
 }

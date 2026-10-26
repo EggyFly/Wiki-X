@@ -40,7 +40,7 @@ func (s *Store) CreateUser(ctx context.Context, name, email, passwordHash string
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO user_groups (user_id, group_id)
-		SELECT u.id, g.id FROM users u JOIN groups g ON g.name = $2 WHERE u.name = $1`, name, group); err != nil {
+		SELECT u.id, g.id FROM users u JOIN groups g ON g.name = $2 AND g.revoked_at IS NULL WHERE u.name = $1`, name, group); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -85,7 +85,8 @@ func (s *Store) scanUser(ctx context.Context, query string, arg any) (*User, err
 
 func (s *Store) userGroups(ctx context.Context, userID int64) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `SELECT g.name FROM user_groups ug
-		JOIN groups g ON g.id = ug.group_id WHERE ug.user_id = $1 ORDER BY g.name`, userID)
+		JOIN groups g ON g.id = ug.group_id
+		WHERE ug.user_id = $1 AND ug.revoked_at IS NULL AND g.revoked_at IS NULL ORDER BY g.name`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -103,8 +104,10 @@ func (s *Store) userGroups(ctx context.Context, userID int64) ([]string, error) 
 
 func (s *Store) userRights(ctx context.Context, userID int64) (map[string]bool, error) {
 	rows, err := s.pool.Query(ctx, `SELECT DISTINCT gr.right_name
-		FROM user_groups ug JOIN group_rights gr ON gr.group_id = ug.group_id
-		WHERE ug.user_id = $1`, userID)
+		FROM user_groups ug
+		JOIN group_rights gr ON gr.group_id = ug.group_id
+		JOIN groups g ON g.id = ug.group_id
+		WHERE ug.user_id = $1 AND ug.revoked_at IS NULL AND gr.revoked_at IS NULL AND g.revoked_at IS NULL`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -122,14 +125,14 @@ func (s *Store) userRights(ctx context.Context, userID int64) (map[string]bool, 
 
 func (s *Store) GrantGroup(ctx context.Context, userName, groupName string) error {
 	result, err := s.pool.Exec(ctx, `INSERT INTO user_groups (user_id, group_id)
-		SELECT u.id, g.id FROM users u JOIN groups g ON g.name = $2 WHERE u.name = $1
-		ON CONFLICT DO NOTHING`, userName, groupName)
+		SELECT u.id, g.id FROM users u JOIN groups g ON g.name = $2 AND g.revoked_at IS NULL WHERE u.name = $1
+		ON CONFLICT (user_id, group_id) DO UPDATE SET revoked_at=NULL, revoked_by=NULL, revoke_reason=''`, userName, groupName)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() == 0 {
 		var exists bool
-		if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users u JOIN groups g ON g.name = $2 WHERE u.name = $1)`,
+		if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users u JOIN groups g ON g.name = $2 AND g.revoked_at IS NULL WHERE u.name = $1)`,
 			userName, groupName).Scan(&exists); err != nil {
 			return err
 		}
@@ -156,8 +159,8 @@ func (s *Store) ListUsers(ctx context.Context, limit, offset int) ([]*User, erro
 	rows, err := s.pool.Query(ctx, `SELECT u.id, u.name, u.email, u.email_verified, u.disabled, u.totp_enabled, u.created_at,
 			COALESCE(array_agg(g.name ORDER BY g.name) FILTER (WHERE g.name IS NOT NULL), '{}')
 		FROM users u
-		LEFT JOIN user_groups ug ON ug.user_id = u.id
-		LEFT JOIN groups g ON g.id = ug.group_id
+		LEFT JOIN user_groups ug ON ug.user_id = u.id AND ug.revoked_at IS NULL
+		LEFT JOIN groups g ON g.id = ug.group_id AND g.revoked_at IS NULL
 		WHERE u.deleted_at IS NULL
 		GROUP BY u.id
 		ORDER BY u.created_at DESC, u.id DESC
@@ -202,7 +205,7 @@ func (s *Store) SetUserGroups(ctx context.Context, userID int64, groups []string
 		return err
 	}
 
-	rows, err := tx.Query(ctx, `SELECT name FROM groups WHERE name = ANY($1)`, unique)
+	rows, err := tx.Query(ctx, `SELECT name FROM groups WHERE name = ANY($1) AND revoked_at IS NULL`, unique)
 	if err != nil {
 		return err
 	}
@@ -241,11 +244,15 @@ func (s *Store) SetUserGroups(ctx context.Context, userID int64, groups []string
 		}
 	}
 
-	if _, err := tx.Exec(ctx, `DELETE FROM user_groups WHERE user_id = $1`, userID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE user_groups
+		SET revoked_at=now(), revoked_by=NULLIF($2,0), revoke_reason='user groups update'
+		WHERE user_id=$1 AND revoked_at IS NULL
+		AND group_id NOT IN (SELECT id FROM groups WHERE name = ANY($3) AND revoked_at IS NULL)`, userID, actorID, unique); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO user_groups (user_id, group_id)
-		SELECT $1, id FROM groups WHERE name = ANY($2)`, userID, unique); err != nil {
+		SELECT $1, id FROM groups WHERE name = ANY($2) AND revoked_at IS NULL
+		ON CONFLICT (user_id, group_id) DO UPDATE SET revoked_at=NULL, revoked_by=NULL, revoke_reason=''`, userID, unique); err != nil {
 		return err
 	}
 	if err := logAudit(ctx, tx, actorID, "user.groups", name, strings.Join(unique, ",")); err != nil {
@@ -521,7 +528,7 @@ func (s *Store) FindOrCreateGitHubUser(ctx context.Context, subject, username, e
 			return nil, err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO user_groups (user_id, group_id)
-			SELECT $1, id FROM groups WHERE name = 'user'`, createdID); err != nil {
+			SELECT $1, id FROM groups WHERE name = 'user' AND revoked_at IS NULL`, createdID); err != nil {
 			_ = tx.Rollback(ctx)
 			return nil, err
 		}

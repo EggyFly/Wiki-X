@@ -45,6 +45,14 @@ database:
     params: ""
   max_conns: 10
   auto_migrate: false
+oidc:
+  enabled: false         # 让其他站点用 Wiki-X 账号登录, 需要数据库
+  issuer: ""             # 留空使用 site.base_url
+  key_encryption_key: "" # 32 字节 base64, 开启时必须填写
+  access_ttl: 5m
+  id_ttl: 5m
+  refresh_ttl: 168h
+  code_ttl: 2m
 auth:
   secure_cookies: false
   session_ttl: 336h

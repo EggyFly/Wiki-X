@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/EggyFly/Wiki-X/internal/revoke"
 )
 
 type Config struct {
@@ -33,6 +36,8 @@ type Config struct {
 	RateLimit    RateLimitConfig    `yaml:"ratelimit"`
 	Search       SearchConfig       `yaml:"search"`
 	Metrics      MetricsConfig      `yaml:"metrics"`
+	OIDC         OIDCConfig         `yaml:"oidc"`
+	Revoke       revoke.Policy      `yaml:"-"`
 }
 
 type SiteConfig struct {
@@ -213,6 +218,16 @@ type MetricsConfig struct {
 	Token   string `yaml:"token"`
 }
 
+type OIDCConfig struct {
+	Enabled          bool   `yaml:"enabled"`
+	Issuer           string `yaml:"issuer"`
+	KeyEncryptionKey string `yaml:"key_encryption_key"`
+	AccessTTL        string `yaml:"access_ttl"`
+	IDTTL            string `yaml:"id_ttl"`
+	RefreshTTL       string `yaml:"refresh_ttl"`
+	CodeTTL          string `yaml:"code_ttl"`
+}
+
 func Load(path string) (*Config, error) {
 	envKeys, err := loadDotEnv(path)
 	if err != nil {
@@ -240,6 +255,11 @@ func Load(path string) (*Config, error) {
 	}
 	cfg.setDefault()
 	cfg.resolvePaths(filepath.Dir(path))
+	policy, err := revoke.Load(filepath.Join(filepath.Dir(path), "revoke.json"))
+	if err != nil {
+		return nil, err
+	}
+	cfg.Revoke = policy
 	if cfg.Auth.GitHub.RedirectURL == "" && cfg.Auth.GitHubEnabled() && cfg.Site.BaseURL != "" {
 		cfg.Auth.GitHub.RedirectURL = cfg.Site.BaseURL + "/auth/github/callback"
 	}
@@ -495,6 +515,15 @@ func (c *Config) applyEnv() error {
 	if value, ok := os.LookupEnv("METRICS_TOKEN"); ok {
 		c.Metrics.Token = value
 	}
+	if err := envBool("OIDC_ENABLED", &c.OIDC.Enabled); err != nil {
+		return err
+	}
+	envString("OIDC_ISSUER", &c.OIDC.Issuer)
+	envString("OIDC_KEY_ENCRYPTION_KEY", &c.OIDC.KeyEncryptionKey)
+	envString("OIDC_ACCESS_TTL", &c.OIDC.AccessTTL)
+	envString("OIDC_ID_TTL", &c.OIDC.IDTTL)
+	envString("OIDC_REFRESH_TTL", &c.OIDC.RefreshTTL)
+	envString("OIDC_CODE_TTL", &c.OIDC.CodeTTL)
 	return nil
 }
 
@@ -726,6 +755,25 @@ func (c *Config) setDefault() {
 	c.Metrics.Path = strings.TrimSpace(c.Metrics.Path)
 	if c.Metrics.Path == "" {
 		c.Metrics.Path = "/-/metrics"
+	}
+	c.OIDC.Issuer = strings.TrimRight(strings.TrimSpace(c.OIDC.Issuer), "/")
+	if c.OIDC.Issuer == "" {
+		c.OIDC.Issuer = strings.TrimRight(c.Site.BaseURL, "/")
+	}
+	if c.OIDC.AccessTTL == "" {
+		c.OIDC.AccessTTL = "5m"
+	}
+	if c.OIDC.IDTTL == "" {
+		c.OIDC.IDTTL = "5m"
+	}
+	if c.OIDC.RefreshTTL == "" {
+		c.OIDC.RefreshTTL = "168h"
+	}
+	if c.OIDC.CodeTTL == "" {
+		c.OIDC.CodeTTL = "2m"
+	}
+	for _, value := range []*string{&c.OIDC.AccessTTL, &c.OIDC.IDTTL, &c.OIDC.RefreshTTL, &c.OIDC.CodeTTL} {
+		*value = strings.TrimSpace(*value)
 	}
 }
 
@@ -1067,11 +1115,64 @@ func (c *Config) check() error {
 			return fmt.Errorf("metrics.path contains an invalid character")
 		}
 	}
+	if c.OIDC.Enabled {
+		if !c.Database.Configured() {
+			return fmt.Errorf("oidc requires a configured database")
+		}
+		issuer, err := url.Parse(c.OIDC.Issuer)
+		if err != nil || issuer.Host == "" || (issuer.Scheme != "http" && issuer.Scheme != "https") || issuer.RawQuery != "" || issuer.Fragment != "" || issuer.Path != "" && issuer.Path != "/" {
+			return fmt.Errorf("oidc.issuer must be a http(s) url without path, query or fragment")
+		}
+		keyText := strings.TrimSpace(c.OIDC.KeyEncryptionKey)
+		var keyBytes []byte
+		for _, encoding := range []*base64.Encoding{
+			base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding,
+		} {
+			decoded, err := encoding.DecodeString(keyText)
+			if err == nil && len(decoded) == 32 {
+				keyBytes = decoded
+				break
+			}
+		}
+		if len(keyBytes) != 32 {
+			return fmt.Errorf("oidc.key_encryption_key must be 32 bytes base64")
+		}
+		for name, value := range map[string]string{
+			"oidc.access_ttl":  c.OIDC.AccessTTL,
+			"oidc.id_ttl":      c.OIDC.IDTTL,
+			"oidc.refresh_ttl": c.OIDC.RefreshTTL,
+			"oidc.code_ttl":    c.OIDC.CodeTTL,
+		} {
+			if d, err := time.ParseDuration(value); err != nil || d <= 0 {
+				return fmt.Errorf("%s must be a positive duration", name)
+			}
+		}
+	}
 	return nil
 }
 
 func (c AuditConfig) RetentionDuration() time.Duration {
 	value, _ := time.ParseDuration(c.Retention)
+	return value
+}
+
+func (c OIDCConfig) AccessDuration() time.Duration {
+	value, _ := time.ParseDuration(c.AccessTTL)
+	return value
+}
+
+func (c OIDCConfig) IDTokenDuration() time.Duration {
+	value, _ := time.ParseDuration(c.IDTTL)
+	return value
+}
+
+func (c OIDCConfig) RefreshDuration() time.Duration {
+	value, _ := time.ParseDuration(c.RefreshTTL)
+	return value
+}
+
+func (c OIDCConfig) CodeDuration() time.Duration {
+	value, _ := time.ParseDuration(c.CodeTTL)
 	return value
 }
 

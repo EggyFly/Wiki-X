@@ -295,7 +295,9 @@ func (s *Store) RejectRevision(ctx context.Context, revisionID, reviewerID int64
 			return "", err
 		}
 		if published == 0 {
-			if _, err := tx.Exec(ctx, `DELETE FROM pages WHERE id = $1`, pageID); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE pages
+					SET deleted_at=now(), deleted_by=NULLIF($2,0), delete_reason='rejected draft'
+					WHERE id=$1 AND deleted_at IS NULL`, pageID, reviewerID); err != nil {
 				return "", err
 			}
 		}

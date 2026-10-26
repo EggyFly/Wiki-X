@@ -1,0 +1,46 @@
+{{define "main"}}
+<section class="panel">
+  <h1>{{.T.revoked_admin}}</h1>
+  <p class="muted">{{.T.revoked_admin_hint}}</p>
+  {{if .Records}}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{{.T.revoked_kind}}</th>
+          <th>{{.T.revoked_label}}</th>
+          <th>{{.T.revoked_reason}}</th>
+          <th>{{.T.revoked_by}}</th>
+          <th>{{.T.revoked_at}}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Records}}
+        <tr>
+          <td>{{.Kind}}</td>
+          <td><code>{{.Label}}</code></td>
+          <td>{{.Reason}}</td>
+          <td>{{.ActorName}}</td>
+          <td>{{.RevokedAt.Format "2006-01-02 15:04"}}</td>
+          <td>
+            <form method="post" action="/admin/revoked/restore">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="kind" value="{{.Kind}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="btn" type="submit">{{$.T.revoked_restore}}</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted">{{.T.revoked_field_hint}}</p>
+  <p class="muted">{{.T.revoked_entity_hint}}</p>
+  <p class="muted">{{.T.revoked_oidc_hint}}</p>
+  {{else}}
+  <p class="muted">{{.T.revoked_none}}</p>
+  {{end}}
+</section>
+{{end}}

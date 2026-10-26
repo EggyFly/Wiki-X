@@ -9,9 +9,11 @@
 - [3 站点与内容](#3-站点与内容)
 - [4 缓存](#4-缓存)
 - [5 数据库与账号](#5-数据库与账号)
+  - [5.1 OIDC Provider](#51-oidc-provider)
 - [6 邮件与密码找回](#6-邮件与密码找回)
 - [7 注册](#7-注册)
 - [8 社区治理](#8-社区治理)
+  - [8.1 删除与撤销](#81-删除与撤销)
 - [9 主题和皮肤](#9-主题和皮肤)
 - [10 GitHub](#10-github)
 - [11 媒体](#11-媒体)
@@ -185,6 +187,62 @@ auth:
 
 Git 模式不依赖数据库; 配置主库后才会启用账号、审核、后台和站内编辑 PR. PG 模式必须配置主库.
 
+### 5.1 OIDC Provider
+
+Wiki-X 可以作为 OIDC Provider, 让其他站点用 Wiki-X 账号登录. 本机账号是唯一身份源, 不支持动态客户端注册, 接入方必须先由站长在后台登记.
+
+```yaml
+oidc:
+  enabled: true
+  issuer: https://wiki.example.com   # 留空时使用 site.base_url
+  key_encryption_key: ""             # 32 字节 base64, 开启时必填, 用 openssl rand -base64 32 生成
+  access_ttl: 5m
+  id_ttl: 5m
+  refresh_ttl: 168h
+  code_ttl: 2m
+```
+
+OIDC 依赖数据库, Git 模式也必须配置主库; 开启后启动时会在数据库里生成或读取 RS256 签名密钥. `issuer` 必须是接入方访问到的公开地址, 生产环境用 HTTPS, 不能带路径、query 或 fragment; 修改 issuer 会让旧 token 和已登记的 discovery 地址失效.
+`key_encryption_key` 只用于加密数据库里的签名私钥, 不是给接入方看的 Secret; 更换它会导致已有密钥无法解密, 必须先备份并清空 `oidc_signing_keys` 重新生成. 旧版本留下的明文密钥会在首次启动时自动加密并回写.
+
+后台登记流程:
+
+1. 用拥有 `manage_users` 权限的账号登录, 打开 `/admin/oidc`
+2. 填写应用名、提供者名、图标 URL 和一个或多个回调地址
+3. 保存后页面只显示一次 App ID 和 App Secret, 关闭后不能再查看
+4. 把 App ID、App Secret、discovery 地址和回调地址交给接入方
+5. 泄露或更换接入方时点"重置 Secret"; 旧 Secret 立即失效, 该应用的全部授权会话和 refresh token 也会被撤销
+6. 禁用应用会撤销已有授权会话并拒绝新的授权和 token 请求; 删除应用会级联删除授权码、会话和 refresh token
+
+回调地址必须和接入方配置完全一致, 不支持通配符; 非本机地址必须使用 HTTPS, 本机调试允许 `http://localhost`、`http://127.0.0.1` 和 `http://[::1]`. 图标可以填站内绝对路径或 http(s) 地址.
+
+接入方配置:
+
+- Discovery: `https://wiki.example.com/.well-known/openid-configuration`
+- Authorization: `https://wiki.example.com/oauth2/authorize`
+- Token: `https://wiki.example.com/oauth2/token`
+- UserInfo: `https://wiki.example.com/oauth2/userinfo`
+- Revocation: `https://wiki.example.com/oauth2/revoke`
+- JWKS: `https://wiki.example.com/.well-known/jwks.json`
+
+支持的 scope 是 `openid`, `profile`, `email`; 授权请求必须带 `response_type=code`, `state`, `nonce` 和 PKCE `code_challenge_method=S256`. `state` 只校验非空和长度, 接入方必须自己保存并比对, 防止 CSRF 和授权码注入.
+
+ID token 和 UserInfo 始终返回 `sub`; 请求 `profile` scope 时额外返回 `preferred_username` 和 `name`, 请求 `email` scope 时额外返回 `email` 和 `email_verified`. `sub` 是数据库用户 ID 的字符串形式, 不会随用户名修改而变化. access token 是 RS256 JWT, 有效期默认 5 分钟, 只用于 UserInfo 和撤销; 资源服务如果直接校验 access token, 应校验签名、`iss`、`exp`、`token_use=access` 和 `client_id`.
+
+Refresh token 每次使用后轮换; 旧 token 再次使用视为泄露, 服务端会撤销整个授权会话. 接入方应只保存最新 refresh token, 并在收到 `invalid_grant` 时重新走授权流程. Token 端点支持 `client_secret_basic` 和表单 `client_secret_post`, 推荐 Basic.
+
+安全注意事项:
+
+- App Secret 只保存 SHA-256 哈希, 后台不会回显; 日志和跳转 URL 不包含 Secret
+- 授权码 2 分钟有效且只能使用一次, 必须同时提交相同的 `redirect_uri` 和 PKCE verifier
+- 登录用户每次新增 scope 都会看到同意页; `prompt=none` 在未登录或无既往同意时返回 `login_required` 或 `consent_required`
+- 禁用账号后不能刷新 token 或访问 UserInfo, 已签发的 access token 最多再用 5 分钟
+- 禁用 OIDC 应用后会撤销该应用已有授权会话; 授权、token、refresh 和 UserInfo 立即拒绝, 只把 access token 拿去本地验签的资源服务仍可能接受它到过期
+- 生产环境必须配置 `site.base_url`、`oidc.issuer` 和 `auth.secure_cookies`, 并在反向代理层启用 HTTPS
+- 目前没有动态客户端注册、客户端凭据模式和登出端点; 接入方登出只需丢弃本地会话
+
+可用环境变量: `OIDC_ENABLED`, `OIDC_ISSUER`, `OIDC_KEY_ENCRYPTION_KEY`, `OIDC_ACCESS_TTL`, `OIDC_ID_TTL`, `OIDC_REFRESH_TTL`, `OIDC_CODE_TTL`.
+
 ## 6 邮件与密码找回
 
 ```yaml
@@ -290,6 +348,38 @@ comment:
 - `GITHUB_PRIVATE_KEY_FILE`
 
 仓库地址如果包含凭据, 也建议通过 `CONTENT_GIT_URL` 在运行时注入.
+
+### 8.1 删除与撤销
+
+业务数据不物理删除, 统一保留记录并标记撤销, 便于审计和违规内容追责:
+
+- 页面和用户沿用已有的 `deleted_at` / `deleted_by` / `delete_reason`
+- 用户组、组权限、用户组成员、实体类型、实体字段、实体、邀请码、OIDC 应用和监视列表使用 `revoked_at` / `revoked_by` / `revoke_reason`
+- 删除接口只撤销行, 所有列表、权限判断和页面加载都过滤已撤销记录
+- 组名、实体名、实体类型名、字段名和页面路由使用部分唯一索引, 撤销后可以重新创建同名记录
+- 重新加入用户组、恢复组权限、重新监视页面会复用原行并清空撤销标记; OIDC 应用撤销后需要重新创建, 不能复用旧 client_id
+- 删除操作继续写 `audit_logs`, 例如 `group.delete`、`entity.delete`、`invite.delete`、`oidc.client.delete`、`page.delete`; 取消监视写 `watch.remove`
+- 页面拒绝草稿也会软撤销, 不再物理删除页面行
+
+以下属于安全、身份关联或过期数据, 仍然按保留策略物理清理, 不属于业务内容撤销: 第三方身份绑定、session、邮箱验证/重置令牌、恢复码、OIDC 授权码、过期或撤销的 OIDC refresh token/session/grant, 以及审计归档后的旧日志. 这样避免高频表无限增长.
+
+已落地 `revoke.json`: 放在配置文件同目录, 用来控制哪些版块允许删除. 缺失文件或缺失 key 时默认允许; `false` 表示该版块的删除入口直接返回 403, 不会物理删除.
+
+```json
+{
+  "sections": {
+    "page": true,
+    "user": true,
+    "group": true,
+    "entity": true,
+    "invite": true,
+    "oidc_client": true,
+    "watchlist": true
+  }
+}
+```
+
+支持的 section 就是上面 7 个. 修改后重启生效. 页面、用户、组、实体、邀请码和 OIDC 应用可以在 `/admin/revoked` 查看和恢复; 实体字段值移除前会把最多 100 条写入审计 detail (4000 字符上限), 但恢复字段不会回填旧值; OIDC 应用恢复后保持禁用, 需要重置 Secret 再启用. 审计动作前缀 (page/user/group/entity/invite/oidc/watch) 继续作为稳定版块标识. `revoke.json` 只控制显式删除入口; 拒绝草稿这种内部清理仍会软撤销页面, 但不会物理删除.
 
 ## 9 主题和皮肤
 
@@ -527,6 +617,12 @@ go run ./cmd/wiki_x audit archive -config wiki_x.yaml
 - 不允许禁用或降级当前登录账号, 并且至少保留一个启用的管理员
 - GitHub webhook 使用 HMAC-SHA256 验签
 - 媒体文件 MIME 白名单和 `nosniff`
+- OIDC App Secret 只存 SHA-256, 创建或重置后只显示一次; 重置会撤销该应用全部会话
+- OIDC 授权码单次使用且 2 分钟过期, 强制 S256 PKCE, `state`/`nonce` 必填, 回调地址精确匹配
+- OIDC 签名私钥用 `OIDC_KEY_ENCRYPTION_KEY` 做 AES-GCM 加密后入库, 启动时读取或生成, 使用 advisory lock 防止多实例同时生成
+- OIDC 每小时清理过期授权码、过期/撤销的 refresh token、过期 session 和空 grant
+- Refresh token 重复使用时默认只拒绝请求, 10 秒内的并发重试不会把整个授权会话误撤销
+- OIDC 同意页的图标由浏览器直接加载, 可能向图标域名暴露访问者 IP; 只填写可信图标源
 - 响应包含 CSP, Referrer-Policy, X-Frame-Options 等基础头
 
 ## 20 前端构建
@@ -561,24 +657,25 @@ go vet ./...
 go test ./...
 ```
 
-PostgreSQL 和 Redis 集成测试需要先准备三个空数据库:
+PostgreSQL 和 Redis 集成测试需要先准备四个空数据库:
 
 ```bash
 export TEST_POSTGRES_URL='postgres://postgres:password@127.0.0.1:5432/wiki_x_test?sslmode=disable'
 export TEST_POSTGRES_URL_SERVER='postgres://postgres:password@127.0.0.1:5432/wiki_x_test_server?sslmode=disable'
 export TEST_POSTGRES_URL_AUDIT='postgres://postgres:password@127.0.0.1:5432/wiki_x_test_audit?sslmode=disable'
+export TEST_POSTGRES_URL_OIDC='postgres://postgres:password@127.0.0.1:5432/wiki_x_test_oidc?sslmode=disable'
 export TEST_REDIS_ADDR=127.0.0.1:6379
 go test ./...
 ```
 
-集成测试只会 truncate 这三个测试库, 不会读取或修改业务库. 没设置环境变量时集成测试会 skip, 报"全绿"前先确认 store/server/audit 三行是 ok.
+集成测试只会 truncate 这四个测试库, 不会读取或修改业务库. 没设置环境变量时集成测试会 skip, 报"全绿"前先确认 store/server/audit/oidc 四行是 ok.
 
 ## 22 路线图
 
 - 真实 Meilisearch 实例验收、中文分词和 10 万页搜索基准
 - 真实 GitHub OAuth/App、SMTP、TLS 反代、Prometheus/Grafana 验收
 - 压测与容量结论, 按真实流量调整限流阈值
-- 更多 OAuth/OIDC provider, 翻译更新通知, WYSIWYG 编辑器
+- 更多上游 OAuth 登录 provider, OIDC 签名密钥轮换与登出端点, 翻译更新通知, WYSIWYG 编辑器
 - 运营准备: 隐私政策、社区公约、备案信息、处置流程
 
 ## 相关文档

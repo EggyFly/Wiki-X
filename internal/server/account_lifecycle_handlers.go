@@ -54,6 +54,10 @@ func (a *App) handleAccountDelete(w http.ResponseWriter, r *http.Request) {
 			a.renderMessage(w, r, http.StatusConflict, "删除失败", "必须保留至少一个启用的管理员.")
 			return
 		}
+		if errors.Is(err, store.ErrRevokeDisabled) {
+			a.renderDeleteDisabled(w, r)
+			return
+		}
 		slog.Error("delete own account failed", "err", err)
 		a.renderMessage(w, r, http.StatusInternalServerError, "删除失败", "暂时无法删除账号.")
 		return
@@ -118,6 +122,8 @@ func (a *App) handleAdminUserDelete(w http.ResponseWriter, r *http.Request) {
 			a.renderMessage(w, r, http.StatusNotFound, "用户不存在", "没有找到这个用户.")
 		case errors.Is(err, store.ErrLastAdmin):
 			a.renderMessage(w, r, http.StatusConflict, "操作失败", "必须保留至少一个启用的管理员.")
+		case errors.Is(err, store.ErrRevokeDisabled):
+			a.renderDeleteDisabled(w, r)
 		default:
 			slog.Error("delete user failed", "err", err)
 			a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法删除用户.")

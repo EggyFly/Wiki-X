@@ -22,6 +22,9 @@ func TestMessageTranslation(t *testing.T) {
 	if got := Message("en", "not translated"); got != "not translated" {
 		t.Fatalf("fallback = %q", got)
 	}
+	if got := Message("en", "应用名不能为空且不能超过 120 个字符."); got == "应用名不能为空且不能超过 120 个字符." {
+		t.Fatal("oidc message was not translated")
+	}
 }
 
 func TestNormalize(t *testing.T) {

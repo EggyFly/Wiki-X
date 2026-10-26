@@ -338,7 +338,7 @@ func loadUI() (*appUI, error) {
 	if err != nil {
 		return nil, fmt.Errorf("frontend assets are missing, run go generate ./...: %w", err)
 	}
-	names := []string{"login", "verify", "forgot", "reset", "verify_email", "register", "register_verify", "edit", "history", "revision", "review", "search", "message", "pr", "account", "watchlist", "discussion", "admin_users", "admin_reports", "admin_audit", "admin_groups", "admin_invites", "admin_entities", "admin_pages", "entities", "translations"}
+	names := []string{"login", "verify", "forgot", "reset", "verify_email", "register", "register_verify", "edit", "history", "revision", "review", "search", "message", "pr", "account", "watchlist", "discussion", "admin_users", "admin_reports", "admin_audit", "admin_groups", "admin_invites", "admin_entities", "admin_pages", "admin_oidc", "admin_revoked", "entities", "translations", "oidc_consent"}
 	pages := make(map[string]*template.Template, len(names))
 	for _, name := range names {
 		set, err := template.New("layout.html").ParseFS(uiFS, "ui/layout.html", "ui/"+name+".html")

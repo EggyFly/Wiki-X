@@ -14,6 +14,7 @@
 - Compose 数据库/用户/密码默认值/卷名改为 `wiki_x`, 测试库改为 `wiki_x_test*`
 - 内部命名统一为 `wiki_x`: Cookie、Redis 前缀、搜索索引、Prometheus 指标、构建清单、管理员锁
 - 升级影响: 旧 Cookie 会话失效, Redis 缓存冷启动, Meilisearch 需重新 `wiki_x search reindex`, Docker 数据需要显式迁移
+- OIDC 开启时新增必填 `OIDC_KEY_ENCRYPTION_KEY` (32 字节 base64); 未配置会拒绝启动, 旧明文签名密钥会在首次启动自动加密回写
 
 ### 新增
 
@@ -22,6 +23,20 @@
 - 音频媒体: 上传和 Git 媒体支持 wav/mp3/ogg/flac, Range 播放, `wx-audio` 组件和编辑器工具栏
 - Wwise/FMOD bank 不做解析, 上传时拒绝 `.bnk`/`.wem`/`.bank`/`.fsb`, 要求先导出为网页音频格式
 - 阿里云 OSS 媒体存储: `media.storage: oss`, 私有签名 URL、public-read、public-read-write, 自定义公开域名和对象前缀
+- 内置 OIDC Provider: 后台登记应用, App Secret 只显示一次并可重置, 授权码 + PKCE S256, RS256 ID/access token, UserInfo、Refresh 轮换和 Revoke
+- OIDC 发现与 JWKS: `/.well-known/openid-configuration`、`/.well-known/jwks.json`, 签名私钥用 `OIDC_KEY_ENCRYPTION_KEY` 加密后存数据库并由多实例安全共享
+- OIDC 应用管理页 `/admin/oidc`: 多回调地址、图标、启停、编辑、重置 Secret 和删除, 操作写审计; 不做动态客户端注册
+
+### 修复
+
+- OIDC 签名私钥不再明文落库, 旧明文密钥首次启动自动加密回写
+- OIDC 过期授权码、refresh token、session 和空 grant 每小时清理
+- refresh token 并发重试不再误撤销整个授权会话, 只拒绝重复请求
+- 禁用 OIDC 应用时撤销已有会话和未使用授权码
+- OIDC 后台校验错误不再显示成 App Secret, 并接入中英文 i18n
+- 业务数据删除改为撤销标记 (revoked_at/revoked_by/revoke_reason), 保留记录并写审计; 页面和用户沿用 deleted_at
+- 用户组、组权限、用户组成员、实体、实体字段、实体类型、邀请码、OIDC 应用和监视列表支持撤销后重建/恢复
+- OIDC 所有签名密钥 (含 inactive) 启动时统一加密迁移; 禁用应用和撤销会话改为同一事务
 
 ## 0.3.0 (2026-10-21)
 

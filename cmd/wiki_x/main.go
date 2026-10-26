@@ -152,6 +152,7 @@ func runServe(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		data.SetRevokePolicy(cfg.Revoke)
 		defer data.Close()
 		if cfg.Database.AutoMigrate {
 			if err := data.Migrate(ctx); err != nil {
@@ -170,6 +171,7 @@ func runServe(ctx context.Context, args []string) error {
 			if err != nil {
 				return err
 			}
+			data.SetRevokePolicy(cfg.Revoke)
 			defer data.Close()
 			if cfg.Database.AutoMigrate {
 				if err := data.Migrate(ctx); err != nil {

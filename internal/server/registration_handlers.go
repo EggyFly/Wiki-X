@@ -312,6 +312,10 @@ func (a *App) handleAdminInviteDelete(w http.ResponseWriter, r *http.Request) {
 			a.renderMessage(w, r, http.StatusNotFound, "邀请码不存在", "没有找到这个邀请码.")
 			return
 		}
+		if errors.Is(err, store.ErrRevokeDisabled) {
+			a.renderDeleteDisabled(w, r)
+			return
+		}
 		slog.Error("delete invite failed", "err", err)
 		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法删除邀请码.")
 		return

@@ -54,6 +54,7 @@ type SiteInfo struct {
 	History      bool
 	Translations bool
 	Entities     bool
+	OIDCEnabled  bool
 	Nav          []config.NavItem
 	Year         int
 	Skins        []SkinInfo
@@ -204,6 +205,7 @@ func (s *Site) loadState(ctx context.Context) (*state, error) {
 		History:      s.cfg.Content.Source == "postgres",
 		Translations: s.cfg.Content.Source == "postgres",
 		Entities:     s.cfg.Content.Source == "postgres",
+		OIDCEnabled:  s.cfg.OIDC.Enabled,
 		Nav:          append([]config.NavItem(nil), s.cfg.Site.Nav...),
 		Year:         time.Now().Year(),
 		Skins:        skins,
@@ -998,7 +1000,7 @@ func configHash(cfg *config.Config) string {
 	hash := sha256.New()
 	values := []string{cfg.Site.Title, cfg.Site.Description, cfg.Site.BaseURL, cfg.Site.Language,
 		fmt.Sprintf("%t", cfg.Site.CommunityUI), fmt.Sprintf("%t", cfg.Site.Static), cfg.Content.Source,
-		cfg.Theme.Default, fmt.Sprintf("%t", cfg.Theme.DisableSwitch), cfg.Theme.Dir, cfg.Theme.Root}
+		fmt.Sprintf("%t", cfg.OIDC.Enabled), cfg.Theme.Default, fmt.Sprintf("%t", cfg.Theme.DisableSwitch), cfg.Theme.Dir, cfg.Theme.Root}
 	for _, value := range values {
 		hash.Write([]byte(value))
 		hash.Write([]byte{0})
