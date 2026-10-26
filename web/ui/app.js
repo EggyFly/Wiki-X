@@ -223,6 +223,8 @@
         }
         preview.innerHTML = data.html || "";
         preview.setAttribute("data-loaded", "1");
+        renderMath(preview);
+        renderMermaid(preview);
         setPreviewBusy(false);
       } catch (error) {
         if (current === sequence) {
@@ -343,7 +345,123 @@
     });
   }
 
+  var mermaidPromise = null;
+  var katexPromise = null;
+  var mermaidReady = false;
+
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var script = document.createElement("script");
+      script.src = src;
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = function () {
+        console.error("failed to load " + src);
+        reject(new Error("failed to load " + src));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  function ensureMermaid() {
+    if (window.mermaid) {
+      return Promise.resolve(window.mermaid);
+    }
+    if (!mermaidPromise) {
+      var name = document.documentElement.getAttribute("data-mermaid");
+      if (!name) {
+        return Promise.reject(new Error("mermaid asset is missing"));
+      }
+      mermaidPromise = loadScript("/-/assets/" + name).then(function () {
+        return window.mermaid;
+      });
+    }
+    return mermaidPromise;
+  }
+
+  function ensureKatex() {
+    if (window.katex) {
+      return Promise.resolve(window.katex);
+    }
+    if (!katexPromise) {
+      var name = document.documentElement.getAttribute("data-katex");
+      if (!name) {
+        return Promise.reject(new Error("katex asset is missing"));
+      }
+      katexPromise = loadScript("/-/assets/" + name).then(function () {
+        return window.katex;
+      });
+    }
+    return katexPromise;
+  }
+
+  function renderMermaid(root) {
+    if (!root || !root.querySelector(".mermaid")) {
+      return;
+    }
+    ensureMermaid().then(function (mermaid) {
+      if (!mermaidReady) {
+        var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: dark ? "dark" : "default",
+        });
+        mermaidReady = true;
+      }
+      var nodes = root.querySelectorAll(".mermaid");
+      if (!nodes.length) {
+        return;
+      }
+      try {
+        if (typeof mermaid.run === "function") {
+          var running = mermaid.run({ nodes: Array.prototype.slice.call(nodes), suppressErrors: true });
+          if (running && typeof running.catch === "function") {
+            running.catch(function (err) {
+              console.error("mermaid render failed", err);
+            });
+          }
+        } else {
+          mermaid.init(undefined, nodes);
+        }
+      } catch (err) {
+        console.error("mermaid render failed", err);
+      }
+    }).catch(function (err) {
+      console.error("mermaid load failed", err);
+    });
+  }
+
+  function renderMath(root) {
+    if (!root || !root.querySelector(".math")) {
+      return;
+    }
+    ensureKatex().then(function (katex) {
+      var nodes = root.querySelectorAll(".math");
+      for (var i = 0; i < nodes.length; i++) {
+        var node = nodes[i];
+        if (node.querySelector("math")) {
+          continue;
+        }
+        try {
+          katex.render(node.textContent, node, {
+            displayMode: node.classList.contains("display"),
+            throwOnError: false,
+            output: "mathml",
+            trust: false,
+          });
+        } catch (err) {
+          console.error("math render failed", err);
+        }
+      }
+    }).catch(function (err) {
+      console.error("math load failed", err);
+    });
+  }
+
   initEditor();
   initUpload();
   initFormLoading();
+  renderMermaid(document);
+  renderMath(document);
 })();

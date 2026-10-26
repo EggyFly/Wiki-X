@@ -86,6 +86,10 @@ func NewApp(cfg *config.Config, s *site.Site, data *store.Store, authManager *au
 			return nil, fmt.Errorf("init oidc: %w", err)
 		}
 	}
+	repo := ""
+	if cfg != nil {
+		repo = cfg.GitHub.Repo
+	}
 	app := &App{
 		cfg:           cfg,
 		site:          s,
@@ -95,7 +99,7 @@ func NewApp(cfg *config.Config, s *site.Site, data *store.Store, authManager *au
 		reloadCh:      make(chan struct{}, 1),
 		syncContent:   syncContent,
 		limitFallback: cache.NewMemory(1, 1, time.Minute),
-		markdown:      render.NewMarkdown(),
+		markdown:      render.NewMarkdownWithRepo(repo),
 		metrics:       newMetrics(),
 		mediaStore:    mediaStore,
 		oidc:          oidcService,
@@ -222,6 +226,7 @@ func (a *App) Handler() http.Handler {
 		}
 	}
 	if a.auth != nil && a.store != nil && a.ui != nil && a.cfg != nil {
+		mux.HandleFunc("GET /u/{name}", a.handleUserProfile)
 		mux.HandleFunc("GET /watchlist", a.handleWatchlist)
 		mux.HandleFunc("POST /watch", a.handleWatch)
 		mux.HandleFunc("GET /discussion", a.handleDiscussion)
@@ -398,7 +403,7 @@ func (a *App) baseData(r *http.Request, title string) baseData {
 	}
 	data.UIVersion = a.uiVersion()
 	if a.ui != nil {
-		data.UIAssets = uiAssets{CSS: a.ui.cssName, JS: a.ui.jsName}
+		data.UIAssets = uiAssets{CSS: a.ui.cssName, JS: a.ui.jsName, Mermaid: a.ui.mermaidName, Katex: a.ui.katexName}
 	}
 	return data
 }

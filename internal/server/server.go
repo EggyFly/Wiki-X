@@ -228,7 +228,7 @@ func writeGzip(w io.Writer, data []byte) error {
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := w.Header()
-		header.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		header.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		header.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		header.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		header.Set("X-Content-Type-Options", "nosniff")

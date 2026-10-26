@@ -5,11 +5,14 @@ import (
 	"html/template"
 	"strings"
 
+	mathjax "github.com/litao91/goldmark-mathjax"
+	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer"
+	"github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/util"
 
 	"github.com/EggyFly/Wiki-X/internal/components"
@@ -18,22 +21,56 @@ import (
 const componentPrefix = "wx-"
 
 type Markdown struct {
-	md       goldmark.Markdown
-	entities components.EntityLookup
+	md        goldmark.Markdown
+	entities  components.EntityLookup
+	repo      string
+	sanitizer *bluemonday.Policy
 }
 
 func NewMarkdown() *Markdown {
-	return NewMarkdownWithEntities(nil)
+	return NewMarkdownWithRepo("")
+}
+
+func NewMarkdownWithRepo(repo string) *Markdown {
+	return NewMarkdownWithEntitiesAndRepo(nil, repo)
 }
 
 func NewMarkdownWithEntities(lookup components.EntityLookup) *Markdown {
+	return NewMarkdownWithEntitiesAndRepo(lookup, "")
+}
+
+func NewMarkdownWithEntitiesAndRepo(lookup components.EntityLookup, repo string) *Markdown {
 	return &Markdown{
 		md: goldmark.New(
-			goldmark.WithExtensions(extension.GFM, extension.Footnote),
-			goldmark.WithParserOptions(parser.WithAutoHeadingID()),
-			goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(&fencedRenderer{entities: lookup}, 100))),
+			goldmark.WithExtensions(
+				extension.GFM,
+				extension.Footnote,
+				mathjax.NewMathJax(mathjax.WithInlineDelim("", ""), mathjax.WithBlockDelim("", "")),
+			),
+			goldmark.WithParserOptions(
+				parser.WithAutoHeadingID(),
+				parser.WithASTTransformers(util.Prioritized(&alertTransformer{}, 100)),
+				parser.WithInlineParsers(
+					util.Prioritized(&mentionParser{}, 499),
+					util.Prioritized(&emojiParser{codes: newEmojiCodes()}, 500),
+					util.Prioritized(&issueParser{repo: repo}, 501),
+				),
+			),
+			goldmark.WithRendererOptions(
+				html.WithUnsafe(),
+				renderer.WithNodeRenderers(
+					util.Prioritized(&fencedRenderer{entities: lookup}, 100),
+					util.Prioritized(&blockquoteRenderer{}, 100),
+					util.Prioritized(&mathRenderer{}, 100),
+					util.Prioritized(&emojiRenderer{}, 100),
+					util.Prioritized(&mentionRenderer{}, 100),
+					util.Prioritized(&issueRenderer{}, 100),
+				),
+			),
 		),
-		entities: lookup,
+		entities:  lookup,
+		repo:      repo,
+		sanitizer: newSanitizer(),
 	}
 }
 
@@ -42,7 +79,7 @@ func (m *Markdown) ToHTML(source []byte) (template.HTML, error) {
 	if err := m.md.Convert(source, &buf); err != nil {
 		return "", err
 	}
-	return template.HTML(buf.String()), nil
+	return template.HTML(m.sanitizer.Sanitize(buf.String())), nil
 }
 
 type fencedRenderer struct {
@@ -70,6 +107,12 @@ func (r *fencedRenderer) renderFenced(writer util.BufWriter, source []byte, node
 			return ast.WalkContinue, nil
 		}
 		_, _ = writer.Write([]byte(html))
+		return ast.WalkContinue, nil
+	}
+	if strings.EqualFold(language, "mermaid") {
+		_, _ = writer.WriteString(`<pre class="mermaid">`)
+		_, _ = writer.WriteString(template.HTMLEscapeString(string(blockText(block, source))))
+		_, _ = writer.WriteString("</pre>\n")
 		return ast.WalkContinue, nil
 	}
 	return r.renderCode(writer, source, block, language)

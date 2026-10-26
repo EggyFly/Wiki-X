@@ -26,6 +26,11 @@
 - 内置 OIDC Provider: 后台登记应用, App Secret 只显示一次并可重置, 授权码 + PKCE S256, RS256 ID/access token, UserInfo、Refresh 轮换和 Revoke
 - OIDC 发现与 JWKS: `/.well-known/openid-configuration`、`/.well-known/jwks.json`, 签名私钥用 `OIDC_KEY_ENCRYPTION_KEY` 加密后存数据库并由多实例安全共享
 - OIDC 应用管理页 `/admin/oidc`: 多回调地址、图标、启停、编辑、重置 Secret 和删除, 操作写审计; 不做动态客户端注册
+- Markdown 支持 GitHub alerts (`[!NOTE]`/`[!TIP]`/`[!IMPORTANT]`/`[!WARNING]`/`[!CAUTION]`) 和安全 HTML 白名单
+- Markdown 支持 KaTeX 数学公式、Mermaid 图、emoji 短代码、@mention 和 `#123`/`owner/repo#123` issue/PR 引用
+- 安全 HTML 允许 details/summary、kbd、mark、表格、图片、音视频等, 渲染后经 bluemonday 清洗
+- 新增公开用户主页 `/u/{name}` 和静态构建的 Mermaid/KaTeX/diagrams 资源复制
+- 新增 OIDC Provider 运维手册、OIDC 接入方指南和节点/操作 ID 清单
 
 ### 修复
 

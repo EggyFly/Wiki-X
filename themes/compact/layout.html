@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="{{.Lang}}">
+<html lang="{{.Lang}}" data-mermaid="{{.Site.MermaidAsset}}" data-katex="{{.Site.KatexAsset}}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,6 +8,7 @@
   {{if .Site.BaseURL}}<link rel="canonical" href="{{.Site.BaseURL}}{{.Path}}">{{end}}
   <link rel="icon" href="/assets/{{.Site.CurrentSkin}}/{{.Site.FaviconAsset}}" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/{{.Site.CurrentSkin}}/{{.Site.StyleAsset}}">
+  {{if .Site.DiagramsAsset}}<script src="/-/assets/{{.Site.DiagramsAsset}}" defer></script>{{end}}
 </head>
 <body>
   <a class="skip-link" href="#main">{{.T.skip_to_content}}</a>

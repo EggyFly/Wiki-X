@@ -1,0 +1,9 @@
+{{define "main"}}
+<section class="panel">
+  <h1>{{.Profile.Name}}</h1>
+  <dl class="meta-list">
+    <dt>{{.T.joined_at}}</dt><dd>{{.Profile.CreatedAt.Format "2006-01-02"}}</dd>
+    <dt>{{.T.groups_label}}</dt><dd>{{range .Profile.Groups}}<span class="tag">{{.}}</span>{{end}}</dd>
+  </dl>
+</section>
+{{end}}

@@ -18,6 +18,7 @@
 - [10 GitHub](#10-github)
 - [11 媒体](#11-媒体)
 - [12 组件指令](#12-组件指令)
+  - [12.1 Markdown 兼容与安全 HTML](#121-markdown-兼容与安全-html)
 - [13 结构化实体](#13-结构化实体)
 - [14 审计留存](#14-审计留存)
 - [15 搜索](#15-搜索)
@@ -242,6 +243,10 @@ Refresh token 每次使用后轮换; 旧 token 再次使用视为泄露, 服务�
 - 目前没有动态客户端注册、客户端凭据模式和登出端点; 接入方登出只需丢弃本地会话
 
 可用环境变量: `OIDC_ENABLED`, `OIDC_ISSUER`, `OIDC_KEY_ENCRYPTION_KEY`, `OIDC_ACCESS_TTL`, `OIDC_ID_TTL`, `OIDC_REFRESH_TTL`, `OIDC_CODE_TTL`.
+
+详细文档: [OIDC Provider 运维手册](OIDC-PROVIDER.md) 面向站长和运维, [OIDC 接入方指南](OIDC-CLIENT.md) 面向第三方站点.
+
+节点和操作 ID 清单见 [NODES.md](NODES.md).
 
 ## 6 邮件与密码找回
 
@@ -484,6 +489,49 @@ caption: 活动版本
 
 内置组件目前有 `infobox` (标题/图片/属性行/标签/脚注), `notice` (info/warn/danger 提示), `gallery` (图片画廊), `collapse` (原生 details 折叠) 和 `audio` (wav/mp3/ogg/flac 播放器). 组件内容经过严格校验: 未知字段拒绝, 单个组件上限 8 KiB, 拒绝 YAML 别名, 图片和音频只允许站内绝对路径. 组件渲染失败时页面会显示错误框而不是 500. 内置组件列表由框架维护, 不支持站点自定义模板.
 
+### 12.1 Markdown 兼容与安全 HTML
+
+Markdown 使用 goldmark GFM + Footnote, 已支持 GitHub 常见语法: 表格、删除线、任务列表、自动链接、脚注和标题锚点.
+
+GitHub 风格提示框使用 blockquote 标记, 支持 5 种类型:
+
+```markdown
+> [!NOTE]
+> 普通说明
+
+> [!TIP]
+> 使用建议
+
+> [!IMPORTANT]
+> 重要信息
+
+> [!WARNING]
+> 警告
+
+> [!CAUTION]
+> 危险操作
+```
+
+渲染结果是 `markdown-alert markdown-alert-note` 等 class, 标题分别是 Note/Tip/Important/Warning/Caution. 标题目前固定英文, 内容里的 Markdown 会继续正常渲染.
+
+允许一部分安全 HTML, 例如 `details`/`summary`、`kbd`、`mark`、`sub`/`sup`、`abbr`、`dl`/`dt`/`dd`、`figure`/`figcaption`、表格、图片、`audio`/`video`/`source`/`track`, 以及 `class` 和有限的 `align` 属性. 任务列表的 checkbox 也会保留.
+
+额外支持:
+
+- 数学公式: 行内 `$...$`, 块级 `$$...$$`; 浏览器端用 KaTeX 的 MathML 输出渲染
+- Mermaid: 用 ` ```mermaid ` 代码块写图, 浏览器端用 Mermaid 渲染
+- Emoji 短代码: 例如 `:smile:`
+- `@username`: 链接到 `/u/username` 公开用户主页
+- Issue/PR 引用: 配置 `github.repo` 后, `#123` 链接到该仓库的 issue/PR; `owner/repo#123` 链接到指定仓库
+
+渲染完成后统一经过 bluemonday 策略清洗: `script`、`iframe`、`style`、事件属性 (如 `onclick`)、`javascript:` 链接和 `data:` 文档链接会被移除; 外链会补 `rel="nofollow"`. 站点自己的 `wx-*` 组件和主题 class 在清洗策略内保留.
+
+数学和 Mermaid 需要浏览器执行脚本. 资源已经内嵌并通过 `/-/assets/` 提供, 不依赖外部 CDN; 静态构建也会把 diagrams、KaTeX 和 Mermaid 资源复制到 `dist/-/assets/`. 因为 Mermaid 会生成内联样式, CSP 的 `style-src` 需要允许 `'unsafe-inline'`; 脚本仍然只允许同源.
+
+站外图片、音频和视频仍受页面 CSP 限制, 生产内容建议上传到站内媒体并使用 `/media/...` 地址, 避免外链失效和访问者 IP 泄露.
+
+和 GitHub 仍不同的部分: 没有 Mermaid 之外的图表类型扩展、没有数学公式服务端预渲染、没有 @mention 通知、issue/PR 悬浮卡片、reaction 和代码搜索集成. 第三方组件许可见 `THIRD_PARTY_NOTICES.md`.
+
 ## 13 结构化实体
 
 PG 模式提供图鉴数据管理:
@@ -593,7 +641,7 @@ go run ./cmd/wiki_x audit archive -config wiki_x.yaml
 
 ## 19 安全默认值
 
-- Markdown 默认不渲染 raw HTML, 链接危险协议由 goldmark 拦截
+- Markdown 允许安全 HTML 子集, 渲染后统一经过 bluemonday 清洗; `script`、`iframe`、事件属性和危险协议会被移除
 - 页面使用 html/template 自动转义
 - 主题资源从 fs.FS 提供, 目录列表关闭, 路径穿越字符和 Windows 保留名被拒绝
 - 单文件默认 1 MiB, frontmatter 拒绝 YAML 别名并限制节点数和嵌套深度
@@ -681,6 +729,9 @@ go test ./...
 ## 相关文档
 
 - `docs/HANDOVER.md`: 交接文档. 环境准备、命令、已知坑、一轮开发的标准流程、e2e 验收配方、代码地图、当前状态、下一步与待拍板事项
+- `docs/OIDC-PROVIDER.md`: OIDC Provider 配置、应用登记、密钥、安全语义和故障排查
+- `docs/OIDC-CLIENT.md`: 第三方接入方授权码 + PKCE、token 校验、refresh 和撤销流程
+- `docs/NODES.md`: 板块、路由、操作、组件、状态、CLI 和审计动作 ID 清单
 - `docs/PROJECT_PLAN.md`: 项目规划. 定位与目标、非目标、架构决策、数据模型、容量与安全设计、合规要求、里程碑与路线图、技术债、风险
 - `TASK.md`: 每轮实现记录、验证结果与修复记录, 是进度基准 (仓库内私有维护文件)
 - `CHANGELOG.md`: 版本变更摘要

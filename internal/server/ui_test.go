@@ -119,6 +119,7 @@ func TestUIRender(t *testing.T) {
 		{"admin_revoked", adminRevokedData{baseData: base, Records: []*store.RevokedRecord{{
 			Kind: "group", ID: "1", Label: "staff", Reason: "deleted", ActorName: "admin", RevokedAt: now,
 		}}}, "已撤销记录"},
+		{"user_profile", userProfileData{baseData: base, Profile: &store.User{Name: "alice", Groups: []string{"editor"}, CreatedAt: now}}, "alice"},
 		{"oidc_consent", oidcConsentData{baseData: consentBase,
 			Client: &store.OIDCClient{ClientID: "wx_test", Name: "Test App", Provider: "Test"},
 			Scopes: []oidcConsentScope{{Scope: "openid", Label: base.T["oidc_scope_openid"], Desc: base.T["oidc_scope_openid_desc"]}},

@@ -42,6 +42,7 @@ func Message(lang, text string) string {
 var englishMessages = map[string]string{
 	"登录失败":                   "Login failed",
 	"暂时无法读取用户信息.":            "Unable to read user information right now.",
+	"暂时无法读取用户主页.":            "Unable to read the user profile right now.",
 	"登录请求格式不正确.":             "Invalid login request.",
 	"登录校验失败, 请重试.":           "Login verification failed. Please try again.",
 	"用户名或密码错误.":              "Invalid username or password.",
@@ -498,6 +499,9 @@ var zhCN = map[string]string{
 
 	"user_admin":           "用户管理",
 	"user_admin_hint":      "管理用户组和账号状态.",
+	"user_profile":         "用户主页",
+	"joined_at":            "加入于",
+	"groups_label":         "用户组",
 	"create_user":          "创建用户",
 	"group_admin":          "用户组管理",
 	"group_admin_hint":     "管理用户组和对应权限, 必须保留至少一个拥有用户管理权限的启用账号.",
@@ -951,6 +955,9 @@ var en = map[string]string{
 
 	"user_admin":           "Users",
 	"user_admin_hint":      "Manage user groups and account status.",
+	"user_profile":         "User profile",
+	"joined_at":            "Joined",
+	"groups_label":         "Groups",
 	"create_user":          "Create user",
 	"group_admin":          "Groups",
 	"group_admin_hint":     "Manage user groups and their rights. At least one enabled account with the manage-users right must remain.",

@@ -9,7 +9,7 @@
 
 ## 特点
 
-- Markdown + YAML frontmatter, goldmark GFM 渲染, 默认关闭 raw HTML
+- Markdown + YAML frontmatter, goldmark GFM 渲染, GitHub 风格提示框、KaTeX 公式、Mermaid 图和安全 HTML 白名单
 - 按需渲染 + 内存 L1 + Redis L2 缓存 + singleflight 防击穿, ETag/304, gzip, CDN 缓存头
 - 本地账号, argon2id 密码, 数据库 session, CSRF, 权限组
 - 内置 OIDC Provider, 后台登记应用, App Secret 只显示一次并可重置, 支持授权码 + PKCE
@@ -89,6 +89,9 @@ Docker 部署参数见 `compose.yaml` 和 `deploy/wiki_x.yaml`.
 
 - [docs/README.md](docs/README.md): 使用与运维手册, 配置、社区功能、搜索、审计、安全、前端构建、测试
 - [docs/HANDOVER.md](docs/HANDOVER.md): 交接文档, 环境准备、命令、已知坑、开发流程、代码地图
+- [docs/OIDC-PROVIDER.md](docs/OIDC-PROVIDER.md): OIDC Provider 运维手册
+- [docs/OIDC-CLIENT.md](docs/OIDC-CLIENT.md): OIDC 接入方指南
+- [docs/NODES.md](docs/NODES.md): 板块、路由、操作、组件和审计动作 ID 清单
 - [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md): 项目规划, 架构、数据模型、里程碑、技术债
 - [TASK.md](TASK.md): 每轮实现记录和验证结果 (仓库内私有维护文件)
 - [CHANGELOG.md](CHANGELOG.md): 版本变更摘要

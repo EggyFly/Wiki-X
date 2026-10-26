@@ -22,16 +22,20 @@ import (
 var uiFS embed.FS
 
 type appUI struct {
-	pages   map[string]*template.Template
-	assets  fs.FS
-	version string
-	cssName string
-	jsName  string
+	pages       map[string]*template.Template
+	assets      fs.FS
+	version     string
+	cssName     string
+	jsName      string
+	mermaidName string
+	katexName   string
 }
 
 type uiAssets struct {
-	CSS string
-	JS  string
+	CSS     string
+	JS      string
+	Mermaid string
+	Katex   string
 }
 
 type baseData struct {
@@ -338,7 +342,7 @@ func loadUI() (*appUI, error) {
 	if err != nil {
 		return nil, fmt.Errorf("frontend assets are missing, run go generate ./...: %w", err)
 	}
-	names := []string{"login", "verify", "forgot", "reset", "verify_email", "register", "register_verify", "edit", "history", "revision", "review", "search", "message", "pr", "account", "watchlist", "discussion", "admin_users", "admin_reports", "admin_audit", "admin_groups", "admin_invites", "admin_entities", "admin_pages", "admin_oidc", "admin_revoked", "entities", "translations", "oidc_consent"}
+	names := []string{"login", "verify", "forgot", "reset", "verify_email", "register", "register_verify", "edit", "history", "revision", "review", "search", "message", "pr", "account", "watchlist", "discussion", "admin_users", "admin_reports", "admin_audit", "admin_groups", "admin_invites", "admin_entities", "admin_pages", "admin_oidc", "admin_revoked", "entities", "translations", "oidc_consent", "user_profile"}
 	pages := make(map[string]*template.Template, len(names))
 	for _, name := range names {
 		set, err := template.New("layout.html").ParseFS(uiFS, "ui/layout.html", "ui/"+name+".html")
@@ -353,18 +357,28 @@ func loadUI() (*appUI, error) {
 	}
 	cssName := assetutil.FindHashed(assets, "app", ".css")
 	jsName := assetutil.FindHashed(assets, "app", ".js")
+	mermaidName := assetutil.FindHashed(assets, "mermaid", ".js")
+	katexName := assetutil.FindHashed(assets, "katex", ".js")
 	if _, err := fs.Stat(assets, cssName); err != nil {
 		return nil, fmt.Errorf("ui asset %s is missing, run go generate ./...", cssName)
 	}
 	if _, err := fs.Stat(assets, jsName); err != nil {
 		return nil, fmt.Errorf("ui asset %s is missing, run go generate ./...", jsName)
 	}
+	if _, err := fs.Stat(assets, mermaidName); err != nil {
+		return nil, fmt.Errorf("ui asset %s is missing, run go generate ./...", mermaidName)
+	}
+	if _, err := fs.Stat(assets, katexName); err != nil {
+		return nil, fmt.Errorf("ui asset %s is missing, run go generate ./...", katexName)
+	}
 	return &appUI{
-		pages:   pages,
-		assets:  assets,
-		version: version,
-		cssName: cssName,
-		jsName:  jsName,
+		pages:       pages,
+		assets:      assets,
+		version:     version,
+		cssName:     cssName,
+		jsName:      jsName,
+		mermaidName: mermaidName,
+		katexName:   katexName,
 	}, nil
 }
 

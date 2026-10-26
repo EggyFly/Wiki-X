@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/EggyFly/Wiki-X/frontend"
+	assetutil "github.com/EggyFly/Wiki-X/internal/assets"
 	"github.com/EggyFly/Wiki-X/internal/cache"
 	"github.com/EggyFly/Wiki-X/internal/components"
 	"github.com/EggyFly/Wiki-X/internal/config"
@@ -36,7 +37,7 @@ import (
 
 var ErrNotFound = errors.New("page not found")
 
-const renderVersion = "1"
+const renderVersion = "2"
 
 type SkinInfo struct {
 	Name  string
@@ -44,22 +45,25 @@ type SkinInfo struct {
 }
 
 type SiteInfo struct {
-	Title        string
-	Description  string
-	BaseURL      string
-	AssetVersion string
-	StyleAsset   string
-	FaviconAsset string
-	Community    bool
-	History      bool
-	Translations bool
-	Entities     bool
-	OIDCEnabled  bool
-	Nav          []config.NavItem
-	Year         int
-	Skins        []SkinInfo
-	CurrentSkin  string
-	Switchable   bool
+	Title         string
+	Description   string
+	BaseURL       string
+	AssetVersion  string
+	StyleAsset    string
+	FaviconAsset  string
+	DiagramsAsset string
+	MermaidAsset  string
+	KatexAsset    string
+	Community     bool
+	History       bool
+	Translations  bool
+	Entities      bool
+	OIDCEnabled   bool
+	Nav           []config.NavItem
+	Year          int
+	Skins         []SkinInfo
+	CurrentSkin   string
+	Switchable    bool
 }
 
 type PageInfo struct {
@@ -169,14 +173,14 @@ func LoadWithSource(ctx context.Context, cfg *config.Config, source content.Sour
 		cacheTTL:   ttl,
 		configHash: configHash(cfg),
 	}
-	s.markdown = render.NewMarkdownWithEntities(func(key string) (*components.Entity, bool) {
+	s.markdown = render.NewMarkdownWithEntitiesAndRepo(func(key string) (*components.Entity, bool) {
 		st := s.state.Load()
 		if st == nil {
 			return nil, false
 		}
 		entity, ok := st.entities[key]
 		return entity, ok
-	})
+	}, cfg.GitHub.Repo)
 	st, err := s.loadState(ctx)
 	if err != nil {
 		_ = pageCache.Close()
@@ -198,19 +202,22 @@ func (s *Site) loadState(ctx context.Context) (*state, error) {
 	switchable := len(skins) > 1 && !s.cfg.Theme.DisableSwitch
 
 	siteInfo := SiteInfo{
-		Title:        s.cfg.Site.Title,
-		Description:  s.cfg.Site.Description,
-		BaseURL:      s.cfg.Site.BaseURL,
-		Community:    !s.cfg.Site.Static && (s.cfg.Content.Source == "postgres" || s.cfg.Site.CommunityUI),
-		History:      s.cfg.Content.Source == "postgres",
-		Translations: s.cfg.Content.Source == "postgres",
-		Entities:     s.cfg.Content.Source == "postgres",
-		OIDCEnabled:  s.cfg.OIDC.Enabled,
-		Nav:          append([]config.NavItem(nil), s.cfg.Site.Nav...),
-		Year:         time.Now().Year(),
-		Skins:        skins,
-		CurrentSkin:  defaultSkin,
-		Switchable:   switchable,
+		Title:         s.cfg.Site.Title,
+		Description:   s.cfg.Site.Description,
+		BaseURL:       s.cfg.Site.BaseURL,
+		DiagramsAsset: uiAssetName("diagrams", ".js"),
+		MermaidAsset:  uiAssetName("mermaid", ".js"),
+		KatexAsset:    uiAssetName("katex", ".js"),
+		Community:     !s.cfg.Site.Static && (s.cfg.Content.Source == "postgres" || s.cfg.Site.CommunityUI),
+		History:       s.cfg.Content.Source == "postgres",
+		Translations:  s.cfg.Content.Source == "postgres",
+		Entities:      s.cfg.Content.Source == "postgres",
+		OIDCEnabled:   s.cfg.OIDC.Enabled,
+		Nav:           append([]config.NavItem(nil), s.cfg.Site.Nav...),
+		Year:          time.Now().Year(),
+		Skins:         skins,
+		CurrentSkin:   defaultSkin,
+		Switchable:    switchable,
 	}
 	pageMap := make(map[string]*content.Page, len(pages))
 	routes := make([]string, 0, len(pages))
@@ -996,11 +1003,24 @@ func localeRoute(prefix, base string) string {
 	return "/" + prefix + base
 }
 
+func uiAssetName(base, ext string) string {
+	assets, err := fs.Sub(frontend.FS, "dist/ui")
+	if err != nil {
+		return ""
+	}
+	name := assetutil.FindHashed(assets, base, ext)
+	if _, err := fs.Stat(assets, name); err != nil {
+		return ""
+	}
+	return name
+}
+
 func configHash(cfg *config.Config) string {
 	hash := sha256.New()
 	values := []string{cfg.Site.Title, cfg.Site.Description, cfg.Site.BaseURL, cfg.Site.Language,
 		fmt.Sprintf("%t", cfg.Site.CommunityUI), fmt.Sprintf("%t", cfg.Site.Static), cfg.Content.Source,
-		fmt.Sprintf("%t", cfg.OIDC.Enabled), cfg.Theme.Default, fmt.Sprintf("%t", cfg.Theme.DisableSwitch), cfg.Theme.Dir, cfg.Theme.Root}
+		fmt.Sprintf("%t", cfg.OIDC.Enabled), cfg.Theme.Default, fmt.Sprintf("%t", cfg.Theme.DisableSwitch), cfg.Theme.Dir, cfg.Theme.Root,
+		uiAssetName("diagrams", ".js"), uiAssetName("mermaid", ".js"), uiAssetName("katex", ".js")}
 	for _, value := range values {
 		hash.Write([]byte(value))
 		hash.Write([]byte{0})
