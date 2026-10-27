@@ -7,6 +7,7 @@
   <link rel="icon" href="/assets/{{.Site.CurrentSkin}}/{{.Site.FaviconAsset}}" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/{{.Site.CurrentSkin}}/{{.Site.StyleAsset}}">
   <link rel="stylesheet" href="/-/assets/{{.UIAssets.CSS}}">
+  <link rel="alternate" type="application/rss+xml" title="{{.Site.Title}}" href="/feed.xml">
   <script src="/-/assets/{{.UIAssets.JS}}" defer></script>
 </head>
 <body>
@@ -28,7 +29,7 @@
           {{if .User.HasRight "edit"}}<a href="/edit">{{.T.new_page}}</a>{{end}}
           {{if and .User (.User.HasRight "edit")}}{{if .Site.Translations}}<a href="/translations">{{.T.translations}}</a>{{end}}{{end}}
           {{if .User.HasRight "review"}}<a href="/review">{{.T.review}}</a><a href="/admin/reports">{{.T.report_admin}}</a><a href="/admin/pages">{{.T.page_admin}}</a>{{end}}
-          {{if .User.HasRight "manage_users"}}<a href="/admin/users">{{.T.user_admin}}</a><a href="/admin/entities">{{.T.entity_admin}}</a><a href="/admin/revoked">{{.T.revoked_admin}}</a>{{if .Site.OIDCEnabled}}<a href="/admin/oidc">{{.T.oidc_admin}}</a>{{end}}{{if eq .RegistrationMode "invite"}}<a href="/admin/invites">{{.T.invite_admin}}</a>{{end}}{{end}}
+          {{if .User.HasRight "manage_users"}}<a href="/admin/users">{{.T.user_admin}}</a><a href="/admin/entities">{{.T.entity_admin}}</a>{{if .Site.Entities}}<a href="/admin/interactive">{{.T.interactive_admin}}</a>{{end}}<a href="/admin/revoked">{{.T.revoked_admin}}</a>{{if .Site.OIDCEnabled}}<a href="/admin/oidc">{{.T.oidc_admin}}</a>{{end}}{{if eq .RegistrationMode "invite"}}<a href="/admin/invites">{{.T.invite_admin}}</a>{{end}}{{end}}
           <a href="/watchlist">{{.T.watchlist}}</a>
           <a class="user-chip" href="/account">{{.User.Name}}</a>
           <form method="post" action="/logout" class="inline-form">

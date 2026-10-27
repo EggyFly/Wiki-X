@@ -189,7 +189,7 @@ func (a *App) handleAdminEntitySave(w http.ResponseWriter, r *http.Request) {
 		a.renderEntityError(w, r, err, "暂时无法保存实体.")
 		return
 	}
-	a.reloadSite(r.Context())
+	a.reloadEntities(r.Context())
 	a.redirect(w, r, "/admin/entities?notice=entity_saved", http.StatusSeeOther)
 }
 
@@ -210,7 +210,7 @@ func (a *App) handleAdminEntityDelete(w http.ResponseWriter, r *http.Request) {
 		a.renderEntityError(w, r, err, "暂时无法删除实体.")
 		return
 	}
-	a.reloadSite(r.Context())
+	a.reloadEntities(r.Context())
 	a.redirect(w, r, "/admin/entities?notice=entity_deleted", http.StatusSeeOther)
 }
 
@@ -221,17 +221,17 @@ func (a *App) handleEntities(w http.ResponseWriter, r *http.Request) {
 		a.renderMessage(w, r, http.StatusInternalServerError, "读取失败", "暂时无法读取实体类型.")
 		return
 	}
-	items, err := a.store.ListEntities(r.Context(), 2000)
-	if err != nil {
-		slog.Error("list entities failed", "err", err)
-		a.renderMessage(w, r, http.StatusInternalServerError, "读取失败", "暂时无法读取实体.")
-		return
-	}
 	typeName := strings.TrimSpace(r.URL.Query().Get("type"))
 	sortField := strings.TrimSpace(r.URL.Query().Get("sort"))
 	order := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("order")))
 	if order != "desc" {
 		order = "asc"
+	}
+	items, err := a.store.ListEntitiesByType(r.Context(), typeName)
+	if err != nil {
+		slog.Error("list entities failed", "err", err)
+		a.renderMessage(w, r, http.StatusInternalServerError, "读取失败", "暂时无法读取实体.")
+		return
 	}
 	data := publicEntitiesData{
 		baseData: a.baseData(r, "实体图鉴"),
@@ -240,13 +240,6 @@ func (a *App) handleEntities(w http.ResponseWriter, r *http.Request) {
 		Order:    order,
 	}
 	var fields []*store.EntityField
-	filtered := make([]*store.EntityRecord, 0, len(items))
-	for _, item := range items {
-		if typeName != "" && item.TypeName != typeName {
-			continue
-		}
-		filtered = append(filtered, item)
-	}
 	if typeName != "" {
 		for _, item := range types {
 			if item.Name == typeName {
@@ -257,9 +250,20 @@ func (a *App) handleEntities(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	sortEntities(filtered, fields, sortField, order)
+	sortEntities(items, fields, sortField, order)
 	data.Fields = fields
-	data.Items = filtered
+	data.Total = len(items)
+	page, size := adminPage(r, 50)
+	data.Pager = newPager(page, totalPages(data.Total, size), size)
+	start := (data.Pager.Page - 1) * size
+	if start > len(items) {
+		start = len(items)
+	}
+	end := start + size
+	if end > len(items) {
+		end = len(items)
+	}
+	data.Items = items[start:end]
 	a.renderUI(w, r, http.StatusOK, "entities", data)
 }
 

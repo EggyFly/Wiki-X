@@ -77,7 +77,11 @@ func EntityKinds() []string {
 }
 
 func (s *Store) ListEntityTypes(ctx context.Context) ([]*EntityType, error) {
-	rows, err := s.read().Query(ctx, `SELECT id, name, label, created_at FROM entity_types WHERE revoked_at IS NULL ORDER BY name`)
+	return s.listEntityTypes(ctx, s.strong())
+}
+
+func (s *Store) listEntityTypes(ctx context.Context, query readQuerier) ([]*EntityType, error) {
+	rows, err := query.Query(ctx, `SELECT id, name, label, created_at FROM entity_types WHERE revoked_at IS NULL ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +100,7 @@ func (s *Store) ListEntityTypes(ctx context.Context) ([]*EntityType, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	fieldRows, err := s.read().Query(ctx, `SELECT id, type_id, name, label, kind, required, options, sort_order
+	fieldRows, err := query.Query(ctx, `SELECT id, type_id, name, label, kind, required, options, sort_order
 		FROM entity_fields WHERE revoked_at IS NULL ORDER BY type_id, sort_order, name`)
 	if err != nil {
 		return nil, err
@@ -149,8 +153,19 @@ func (s *Store) CreateEntityType(ctx context.Context, name, label string, actorI
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	created, err := s.createEntityTypeTx(ctx, tx, name, label, actorID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+func (s *Store) createEntityTypeTx(ctx context.Context, tx pgx.Tx, name, label string, actorID int64) (*EntityType, error) {
 	var id int64
-	err = tx.QueryRow(ctx, `INSERT INTO entity_types (name, label) VALUES ($1, $2) RETURNING id`, name, label).Scan(&id)
+	err := tx.QueryRow(ctx, `INSERT INTO entity_types (name, label) VALUES ($1, $2) RETURNING id`, name, label).Scan(&id)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, ErrEntityTypeExists
@@ -158,9 +173,6 @@ func (s *Store) CreateEntityType(ctx context.Context, name, label string, actorI
 		return nil, err
 	}
 	if err := logAudit(ctx, tx, actorID, "entity_type.create", name, ""); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return &EntityType{ID: id, Name: name, Label: label, Fields: []*EntityField{}}, nil
@@ -223,15 +235,22 @@ func (s *Store) AddEntityField(ctx context.Context, typeID int64, name, label, k
 	if kind == EntityKindSelect && len(options) == 0 {
 		return ErrBadEntity
 	}
-	encoded, err := json.Marshal(options)
-	if err != nil {
-		return err
-	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := s.addEntityFieldTx(ctx, tx, typeID, name, label, kind, required, options, sortOrder, actorID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) addEntityFieldTx(ctx context.Context, tx pgx.Tx, typeID int64, name, label, kind string, required bool, options []string, sortOrder int, actorID int64) error {
+	encoded, err := json.Marshal(options)
+	if err != nil {
+		return err
+	}
 	var typeName string
 	if err := tx.QueryRow(ctx, `SELECT name FROM entity_types WHERE id = $1 AND revoked_at IS NULL`, typeID).Scan(&typeName); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -251,10 +270,7 @@ func (s *Store) AddEntityField(ctx context.Context, typeID int64, name, label, k
 		}
 		return err
 	}
-	if err := logAudit(ctx, tx, actorID, "entity_field.create", typeName+"."+name, kind); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return logAudit(ctx, tx, actorID, "entity_field.create", typeName+"."+name, kind)
 }
 
 func (s *Store) DeleteEntityField(ctx context.Context, id, actorID int64) error {
@@ -308,6 +324,25 @@ func (s *Store) ListEntities(ctx context.Context, limit int) ([]*EntityRecord, e
 	}
 	defer rows.Close()
 	items := make([]*EntityRecord, 0, limit)
+	for rows.Next() {
+		item, err := scanEntityRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) ListEntitiesByType(ctx context.Context, typeName string) ([]*EntityRecord, error) {
+	typeName = strings.TrimSpace(typeName)
+	rows, err := s.read().Query(ctx, entitySelectSQL+` WHERE e.revoked_at IS NULL AND t.revoked_at IS NULL
+		AND ($1 = '' OR t.name = $1) ORDER BY e.type_id, e.name`, typeName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]*EntityRecord, 0)
 	for rows.Next() {
 		item, err := scanEntityRecord(rows)
 		if err != nil {
@@ -376,9 +411,28 @@ func (s *Store) SaveEntity(ctx context.Context, in EntityInput) (*EntityRecord, 
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	record, err := s.saveEntityTx(ctx, tx, in)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
+func (s *Store) saveEntityTx(ctx context.Context, tx pgx.Tx, in EntityInput) (*EntityRecord, error) {
+	name := strings.TrimSpace(in.Name)
+	label := strings.TrimSpace(in.Label)
+	if !entityNamePattern.MatchString(name) || utf8.RuneCountInString(label) > 200 {
+		return nil, ErrBadEntity
+	}
+	if label == "" {
+		label = name
+	}
 
 	var typeName string
-	err = tx.QueryRow(ctx, `SELECT name FROM entity_types WHERE id = $1 AND revoked_at IS NULL`, in.TypeID).Scan(&typeName)
+	err := tx.QueryRow(ctx, `SELECT name FROM entity_types WHERE id = $1 AND revoked_at IS NULL`, in.TypeID).Scan(&typeName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -429,10 +483,12 @@ func (s *Store) SaveEntity(ctx context.Context, in EntityInput) (*EntityRecord, 
 	if err := logAudit(ctx, tx, in.ActorID, action, name, typeName); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	row := tx.QueryRow(ctx, entitySelectSQL+` WHERE e.id = $1 AND e.revoked_at IS NULL AND t.revoked_at IS NULL`, id)
+	record, err := scanEntityRecord(row)
+	if err != nil {
 		return nil, err
 	}
-	return s.GetEntity(ctx, id)
+	return record, nil
 }
 
 func (s *Store) DeleteEntity(ctx context.Context, id, actorID int64) error {
@@ -467,7 +523,7 @@ func (s *Store) DeleteEntity(ctx context.Context, id, actorID int64) error {
 }
 
 func (s *Store) LoadEntities(ctx context.Context) ([]*content.Entity, error) {
-	types, err := s.ListEntityTypes(ctx)
+	types, err := s.listEntityTypes(ctx, s.strong())
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +531,7 @@ func (s *Store) LoadEntities(ctx context.Context) ([]*content.Entity, error) {
 	for _, item := range types {
 		typeIndex[item.ID] = item
 	}
-	rows, err := s.read().Query(ctx, `SELECT id, type_id, name, label, data FROM entities
+	rows, err := s.strong().Query(ctx, `SELECT id, type_id, name, label, data FROM entities
 		WHERE revoked_at IS NULL AND type_id IN (SELECT id FROM entity_types WHERE revoked_at IS NULL) ORDER BY name`)
 	if err != nil {
 		return nil, err
@@ -597,7 +653,7 @@ func validateEntityData(fields []*EntityField, data map[string]string) error {
 
 func validEntityImage(value string) bool {
 	if strings.HasPrefix(value, "/") {
-		if strings.HasPrefix(value, "//") || strings.Contains(value, "\\") || strings.Contains(value, "..") {
+		if strings.HasPrefix(value, "//") || strings.Contains(value, "\\") || hasParentDir(value) {
 			return false
 		}
 		for _, r := range value {
@@ -609,6 +665,15 @@ func validEntityImage(value string) bool {
 	}
 	parsed, err := url.Parse(value)
 	return err == nil && parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
+}
+
+func hasParentDir(value string) bool {
+	for _, segment := range strings.Split(value, "/") {
+		if segment == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func validEntityKind(kind string) bool {

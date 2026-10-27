@@ -12,6 +12,7 @@ import (
 
 	"github.com/EggyFly/Wiki-X/frontend"
 	assetutil "github.com/EggyFly/Wiki-X/internal/assets"
+	mediastore "github.com/EggyFly/Wiki-X/internal/media"
 	"github.com/EggyFly/Wiki-X/internal/site"
 	"github.com/EggyFly/Wiki-X/internal/store"
 )
@@ -105,6 +106,22 @@ type adminEntitiesData struct {
 	FieldValues []entityFieldValue
 }
 
+type adminInteractiveData struct {
+	baseData
+	Nodes      []*store.InteractiveNode
+	Edit       *store.InteractiveNode
+	ConfigJSON string
+	Kinds      []string
+	Error      string
+	Pager      pagerData
+}
+
+type interactiveData struct {
+	baseData
+	Node     *store.InteractiveNode
+	Rendered template.HTML
+}
+
 type publicEntitiesData struct {
 	baseData
 	Types     []*store.EntityType
@@ -114,6 +131,8 @@ type publicEntitiesData struct {
 	Items     []*store.EntityRecord
 	Sort      string
 	Order     string
+	Total     int
+	Pager     pagerData
 }
 
 type forgotData struct {
@@ -342,10 +361,12 @@ func loadUI() (*appUI, error) {
 	if err != nil {
 		return nil, fmt.Errorf("frontend assets are missing, run go generate ./...: %w", err)
 	}
-	names := []string{"login", "verify", "forgot", "reset", "verify_email", "register", "register_verify", "edit", "history", "revision", "review", "search", "message", "pr", "account", "watchlist", "discussion", "admin_users", "admin_reports", "admin_audit", "admin_groups", "admin_invites", "admin_entities", "admin_pages", "admin_oidc", "admin_revoked", "entities", "translations", "oidc_consent", "user_profile"}
+	names := []string{"login", "verify", "forgot", "reset", "verify_email", "register", "register_verify", "edit", "history", "revision", "review", "search", "message", "pr", "account", "watchlist", "discussion", "admin_users", "admin_reports", "admin_audit", "admin_groups", "admin_invites", "admin_entities", "admin_pages", "admin_interactive", "admin_oidc", "admin_revoked", "entities", "interactive", "translations", "oidc_consent", "user_profile"}
 	pages := make(map[string]*template.Template, len(names))
 	for _, name := range names {
-		set, err := template.New("layout.html").ParseFS(uiFS, "ui/layout.html", "ui/"+name+".html")
+		set, err := template.New("layout.html").Funcs(template.FuncMap{
+			"thumb": mediastore.ThumbURL,
+		}).ParseFS(uiFS, "ui/layout.html", "ui/"+name+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parse ui %s: %w", name, err)
 		}

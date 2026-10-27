@@ -67,3 +67,51 @@ func TestPageDeleteRestore(t *testing.T) {
 		t.Fatalf("restore audit = %v, %v", ok, err)
 	}
 }
+
+func TestPageRename(t *testing.T) {
+	data := openTestStore(t)
+	ctx := context.Background()
+	admin, err := data.CreateUser(ctx, "admin", "", "hash", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pages := []*content.Page{
+		{Route: "/guide/", Title: "Guide", Body: "body", Version: "v1"},
+		{Route: "/taken/", Title: "Taken", Body: "body", Version: "v1"},
+	}
+	if _, _, err := data.ImportPages(ctx, pages, &admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.Watch(ctx, admin.ID, "/guide/"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.AddComment(ctx, "/guide/", admin.ID, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.RenamePage(ctx, "/guide/", "/manual/", admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.GetPage(ctx, "/guide/"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("old route still exists: %v", err)
+	}
+	page, err := data.GetPage(ctx, "/manual/")
+	if err != nil || page.Title != "Guide" {
+		t.Fatalf("renamed page = %+v, %v", page, err)
+	}
+	comments, err := data.ListComments(ctx, "/manual/", true)
+	if err != nil || len(comments) != 1 {
+		t.Fatalf("comments = %d, %v", len(comments), err)
+	}
+	if watched, err := data.IsWatched(ctx, admin.ID, "/manual/"); err != nil || !watched {
+		t.Fatalf("watch not moved: %v, %v", watched, err)
+	}
+	if watched, err := data.IsWatched(ctx, admin.ID, "/guide/"); err != nil || watched {
+		t.Fatalf("old watch still exists: %v, %v", watched, err)
+	}
+	if err := data.RenamePage(ctx, "/manual/", "/Taken/", admin.ID); !errors.Is(err, ErrRouteExists) {
+		t.Fatalf("case-insensitive conflict = %v", err)
+	}
+	if ok, err := data.HasAudit(ctx, "page.rename", "/guide/"); err != nil || !ok {
+		t.Fatalf("rename audit = %v, %v", ok, err)
+	}
+}

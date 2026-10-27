@@ -83,6 +83,61 @@ func (s *Store) DeletePage(ctx context.Context, route, reason string, actorID in
 	return tx.Commit(ctx)
 }
 
+func (s *Store) RenamePage(ctx context.Context, oldRoute, newRoute string, actorID int64) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var pageID int64
+	err = tx.QueryRow(ctx, `SELECT id FROM pages WHERE route = $1 AND deleted_at IS NULL FOR UPDATE`, oldRoute).Scan(&pageID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var occupied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pages
+		WHERE lower(route) = lower($1) AND deleted_at IS NULL AND id <> $2)`, newRoute, pageID).Scan(&occupied); err != nil {
+		return err
+	}
+	if occupied {
+		return ErrRouteExists
+	}
+	if _, err := tx.Exec(ctx, `UPDATE pages SET route = $2 WHERE id = $1`, pageID, newRoute); err != nil {
+		if isRouteUniqueViolation(err) {
+			return ErrRouteExists
+		}
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM watchlist w USING watchlist w2
+		WHERE w.route = $1 AND w2.route = $2 AND w.user_id = w2.user_id AND w2.revoked_at IS NULL`, oldRoute, newRoute); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM watchlist w USING watchlist old
+		WHERE w.route = $2 AND w.revoked_at IS NOT NULL AND old.route = $1
+			AND old.user_id = w.user_id AND old.revoked_at IS NULL`, oldRoute, newRoute); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM watchlist w USING watchlist old
+		WHERE w.route = $1 AND w.revoked_at IS NOT NULL AND old.route = $2
+			AND old.user_id = w.user_id AND old.revoked_at IS NOT NULL`, oldRoute, newRoute); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE watchlist SET route = $2 WHERE route = $1`, oldRoute, newRoute); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE comments SET route = $2 WHERE route = $1`, oldRoute, newRoute); err != nil {
+		return err
+	}
+	if err := logAudit(ctx, tx, actorID, "page.rename", oldRoute, newRoute); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) RestorePage(ctx context.Context, route string, actorID int64) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

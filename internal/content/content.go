@@ -2,8 +2,11 @@ package content
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 )
+
+var ErrPageNotFound = errors.New("page not found")
 
 type Page struct {
 	Key             string
@@ -41,6 +44,14 @@ type EntitySource interface {
 
 type Source interface {
 	Load(ctx context.Context) ([]*Page, error)
+}
+
+type PageSource interface {
+	LoadPage(ctx context.Context, route string) (*Page, error)
+}
+
+type BodySource interface {
+	LoadBody(ctx context.Context, page *Page) (string, error)
 }
 
 type MediaSource interface {

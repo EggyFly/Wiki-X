@@ -6,6 +6,24 @@ import (
 	"time"
 )
 
+func TestListAuditLogsExportLimit(t *testing.T) {
+	data := openTestStore(t)
+	ctx := context.Background()
+	for i := 0; i < 120; i++ {
+		if err := data.LogAudit(ctx, 0, "page.action", "target", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	logs, err := data.ListAuditLogs(ctx, AuditFilter{}, 5001, 0)
+	if err != nil || len(logs) != 120 {
+		t.Fatalf("export logs = %d, %v", len(logs), err)
+	}
+	limited, err := data.ListAuditLogs(ctx, AuditFilter{}, 10, 0)
+	if err != nil || len(limited) != 10 {
+		t.Fatalf("limited logs = %d, %v", len(limited), err)
+	}
+}
+
 func TestAuditLogsCursorPagination(t *testing.T) {
 	data := openTestStore(t)
 	ctx := context.Background()

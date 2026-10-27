@@ -47,6 +47,65 @@ func TestLoadWithBuiltinTheme(t *testing.T) {
 	}
 }
 
+func TestValidateRouteReserved(t *testing.T) {
+	for _, route := range []string{"/admin/", "/login/", "/oauth2/", "/search/", "/media/", "/u/", "/widgets/", "/games/"} {
+		if err := ValidateRoute(route); err == nil {
+			t.Fatalf("route %s should be reserved", route)
+		}
+	}
+	if err := ValidateRoute("/guide/"); err != nil {
+		t.Fatalf("normal route rejected: %v", err)
+	}
+}
+
+func TestSitemapFeedAndRobots(t *testing.T) {
+	contentDir := t.TempDir()
+	writeFile(t, contentDir, "index.md", "---\ntitle: Home\nupdated: 2026-10-01\n---\n\nbody\n")
+	writeFile(t, contentDir, "guide.md", "---\ntitle: Guide\nupdated: 2026-10-02\n---\n\nbody\n")
+	cfg := testConfig(contentDir)
+	cfg.Site.BaseURL = "https://example.com"
+	loaded, err := Load(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = loaded.Close() })
+	sitemap, err := loaded.Sitemap(context.Background(), cfg.Site.BaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sitemap), "https://example.com/guide/") || !strings.Contains(string(sitemap), "2026-10-02") {
+		t.Fatalf("sitemap = %s", sitemap)
+	}
+	feed, err := loaded.Feed(context.Background(), cfg.Site.BaseURL, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(feed), "<rss") || !strings.Contains(string(feed), "https://example.com/guide/") {
+		t.Fatalf("feed = %s", feed)
+	}
+	robots := string(loaded.Robots(cfg.Site.BaseURL))
+	if !strings.Contains(robots, "Disallow: /admin/") || !strings.Contains(robots, "Sitemap: https://example.com/sitemap.xml") {
+		t.Fatalf("robots = %s", robots)
+	}
+}
+
+func TestCanonicalRoute(t *testing.T) {
+	contentDir := t.TempDir()
+	writeFile(t, contentDir, "Guide.md", "---\ntitle: Guide\n---\n\nbody\n")
+	loaded, err := Load(context.Background(), testConfig(contentDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = loaded.Close() })
+	canonical, ok := loaded.CanonicalRoute("/guide/")
+	if !ok || canonical != "/Guide/" {
+		t.Fatalf("canonical = %q, %v", canonical, ok)
+	}
+	if !loaded.HasRouteFold("/GUIDE/") {
+		t.Fatal("case-insensitive route lookup failed")
+	}
+}
+
 func TestLoadWithCustomTheme(t *testing.T) {
 	contentDir := t.TempDir()
 	themeDir := t.TempDir()

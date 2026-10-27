@@ -79,10 +79,53 @@ func (a *App) handleAdminPageDelete(w http.ResponseWriter, r *http.Request) {
 		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法删除页面.")
 		return
 	}
-	a.reloadSite(r.Context())
+	a.removePage(r.Context(), route)
 	a.invalidateRoute(r.Context(), route)
 	a.syncSearchDocument(r.Context(), route)
 	a.redirect(w, r, "/admin/pages?status=all&notice=page_deleted", http.StatusSeeOther)
+}
+
+func (a *App) handleAdminPageRename(w http.ResponseWriter, r *http.Request) {
+	session, ok := a.requireRight(w, r, auth.RightReview)
+	if !ok {
+		return
+	}
+	if !a.parseGuard(w, r, session) {
+		return
+	}
+	oldRoute := strings.TrimSpace(r.FormValue("route"))
+	newRoute := strings.TrimSpace(r.FormValue("new_route"))
+	if err := site.ValidateRoute(oldRoute); err != nil {
+		a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "原路由不合法.")
+		return
+	}
+	if err := site.ValidateRoute(newRoute); err != nil {
+		a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "新路由必须以 / 开头和结尾, 并且不能使用系统保留路径.")
+		return
+	}
+	if strings.EqualFold(oldRoute, newRoute) {
+		a.renderMessage(w, r, http.StatusBadRequest, "操作失败", "新旧路由不能相同.")
+		return
+	}
+	if err := a.store.RenamePage(r.Context(), oldRoute, newRoute, session.User.ID); err != nil {
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			a.renderMessage(w, r, http.StatusNotFound, "页面不存在", "没有找到这个页面, 或者它已经被删除.")
+		case errors.Is(err, store.ErrRouteExists):
+			a.renderMessage(w, r, http.StatusConflict, "移动失败", "新路由已经被其他页面占用, 大小写不同的同名路由也算冲突.")
+		default:
+			slog.Error("rename page failed", "err", err, "route", oldRoute, "new_route", newRoute)
+			a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法移动页面.")
+		}
+		return
+	}
+	a.removePage(r.Context(), oldRoute)
+	a.reloadPage(r.Context(), newRoute)
+	a.invalidateRoute(r.Context(), oldRoute)
+	a.invalidateRoute(r.Context(), newRoute)
+	a.syncSearchDocument(r.Context(), oldRoute)
+	a.syncSearchDocument(r.Context(), newRoute)
+	a.redirect(w, r, "/admin/pages?status=all&notice=page_renamed", http.StatusSeeOther)
 }
 
 func (a *App) handleAdminPageRestore(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +154,7 @@ func (a *App) handleAdminPageRestore(w http.ResponseWriter, r *http.Request) {
 		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法恢复页面.")
 		return
 	}
-	a.reloadSite(r.Context())
+	a.reloadPage(r.Context(), route)
 	a.invalidateRoute(r.Context(), route)
 	a.syncSearchDocument(r.Context(), route)
 	a.redirect(w, r, "/admin/pages?status=all&notice=page_restored", http.StatusSeeOther)

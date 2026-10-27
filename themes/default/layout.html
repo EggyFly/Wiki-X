@@ -8,6 +8,7 @@
   {{if .Site.BaseURL}}<link rel="canonical" href="{{.Site.BaseURL}}{{.Path}}">{{end}}
   <link rel="icon" href="/assets/{{.Site.CurrentSkin}}/{{.Site.FaviconAsset}}" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/{{.Site.CurrentSkin}}/{{.Site.StyleAsset}}">
+  <link rel="alternate" type="application/rss+xml" title="{{.Site.Title}}" href="/feed.xml">
   {{if .Site.DiagramsAsset}}<script src="/-/assets/{{.Site.DiagramsAsset}}" defer></script>{{end}}
 </head>
 <body>

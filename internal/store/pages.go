@@ -13,7 +13,7 @@ import (
 )
 
 func (s *Store) Load(ctx context.Context) ([]*content.Page, error) {
-	rows, err := s.read().Query(ctx, `SELECT p.route, p.title, p.description, p.body, p.tags, p.version, p.translation_key,
+	rows, err := s.strong().Query(ctx, `SELECT p.route, p.title, p.description, p.body, p.tags, p.version, p.translation_key,
 			p.protected, p.protection_level, p.updated_at, COALESCE(e.name, '')
 		FROM pages p LEFT JOIN entities e ON e.id = p.entity_id
 		WHERE p.draft = false AND p.deleted_at IS NULL ORDER BY p.route`)
@@ -38,6 +38,48 @@ func (s *Store) Load(ctx context.Context) ([]*content.Page, error) {
 		pages = append(pages, &page)
 	}
 	return pages, rows.Err()
+}
+
+func (s *Store) LoadPage(ctx context.Context, route string) (*content.Page, error) {
+	record, err := s.GetPage(ctx, route)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if record.Draft || record.DeletedAt != nil {
+		return nil, nil
+	}
+	page := &content.Page{
+		Key:             record.Route,
+		Route:           record.Route,
+		SourcePath:      "postgres",
+		Title:           record.Title,
+		Description:     record.Description,
+		Body:            record.Body,
+		Tags:            record.Tags,
+		Version:         record.Version,
+		TranslationKey:  record.TranslationKey,
+		Protected:       record.Protected,
+		ProtectionLevel: record.ProtectionLevel,
+		EntityKey:       record.EntityKey,
+		Updated:         record.UpdatedAt.Format("2006-01-02"),
+	}
+	if page.Tags == nil {
+		page.Tags = []string{}
+	}
+	return page, nil
+}
+
+func (s *Store) LoadBody(ctx context.Context, page *content.Page) (string, error) {
+	var body string
+	err := s.pool.QueryRow(ctx, `SELECT body FROM pages
+		WHERE route = $1 AND draft = false AND deleted_at IS NULL`, page.Route).Scan(&body)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", content.ErrPageNotFound
+	}
+	return body, err
 }
 
 func (s *Store) GetPage(ctx context.Context, route string) (*PageRecord, error) {
@@ -89,6 +131,9 @@ func (s *Store) CreateRevision(ctx context.Context, in RevisionInput) (*Revision
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING id`,
 			in.Route, in.Title, in.Description, in.Body, tags, !in.Publish, version, in.TranslationKey, in.EntityID).Scan(&pageID)
 		if err != nil {
+			if isRouteUniqueViolation(err) {
+				return nil, ErrRouteExists
+			}
 			if isUniqueViolation(err) {
 				return nil, ErrEditConflict
 			}
@@ -411,6 +456,9 @@ func (s *Store) ImportPages(ctx context.Context, pages []*content.Page, authorID
 				VALUES ($1, $2, $3, $4, $5, false, $6, $7, now()) RETURNING id`,
 				page.Route, page.Title, page.Description, page.Body, tags, version, page.TranslationKey).Scan(&pageID)
 			if err != nil {
+				if isRouteUniqueViolation(err) {
+					return 0, 0, ErrRouteExists
+				}
 				return 0, 0, err
 			}
 			revID, err := insertImportedRevision(ctx, tx, pageID, page, tags, version, authorID)
@@ -485,6 +533,19 @@ func logAudit(ctx context.Context, tx pgx.Tx, actorID int64, action, target, det
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func isRouteUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+	switch pgErr.ConstraintName {
+	case "pages_route_active_idx", "pages_route_lower_active_idx", "pages_route_key", "pages_route_lower_idx":
+		return true
+	default:
+		return false
+	}
 }
 
 func isEmailUniqueViolation(err error) bool {

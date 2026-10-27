@@ -154,10 +154,12 @@ type GitHubConfig struct {
 }
 
 type MediaConfig struct {
-	Dir     string    `yaml:"dir"`
-	MaxSize int64     `yaml:"max_size"`
-	Storage string    `yaml:"storage"`
-	OSS     OSSConfig `yaml:"oss"`
+	Dir        string    `yaml:"dir"`
+	MaxSize    int64     `yaml:"max_size"`
+	Storage    string    `yaml:"storage"`
+	RateLimit  *int      `yaml:"rate_limit"`
+	RateWindow string    `yaml:"rate_window"`
+	OSS        OSSConfig `yaml:"oss"`
 }
 
 type OSSConfig struct {
@@ -206,10 +208,12 @@ type RateLimitConfig struct {
 }
 
 type SearchConfig struct {
-	Backend string `yaml:"backend"`
-	URL     string `yaml:"url"`
-	APIKey  string `yaml:"api_key"`
-	Index   string `yaml:"index"`
+	Backend    string `yaml:"backend"`
+	URL        string `yaml:"url"`
+	APIKey     string `yaml:"api_key"`
+	Index      string `yaml:"index"`
+	RateLimit  *int   `yaml:"rate_limit"`
+	RateWindow string `yaml:"rate_window"`
 }
 
 type MetricsConfig struct {
@@ -340,6 +344,16 @@ func (c *Config) applyEnv() error {
 		return err
 	}
 	envString("MEDIA_STORAGE", &c.Media.Storage)
+	if value := strings.TrimSpace(os.Getenv("MEDIA_RATE_LIMIT")); value != "" {
+		limit, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("MEDIA_RATE_LIMIT: %w", err)
+		}
+		c.Media.RateLimit = &limit
+	}
+	if value := strings.TrimSpace(os.Getenv("MEDIA_RATE_WINDOW")); value != "" {
+		c.Media.RateWindow = value
+	}
 	envString("OSS_ENDPOINT", &c.Media.OSS.Endpoint)
 	envString("OSS_BUCKET", &c.Media.OSS.Bucket)
 	envString("OSS_ACCESS_KEY_ID", &c.Media.OSS.AccessKeyID)
@@ -501,6 +515,16 @@ func (c *Config) applyEnv() error {
 	}
 	if value := strings.TrimSpace(os.Getenv("SEARCH_INDEX")); value != "" {
 		c.Search.Index = value
+	}
+	if value := strings.TrimSpace(os.Getenv("SEARCH_RATE_LIMIT")); value != "" {
+		limit, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("SEARCH_RATE_LIMIT: %w", err)
+		}
+		c.Search.RateLimit = &limit
+	}
+	if value := strings.TrimSpace(os.Getenv("SEARCH_RATE_WINDOW")); value != "" {
+		c.Search.RateWindow = value
 	}
 	if value := strings.TrimSpace(os.Getenv("METRICS_ENABLED")); value != "" {
 		enabled, err := strconv.ParseBool(value)
@@ -676,6 +700,13 @@ func (c *Config) setDefault() {
 	if c.Media.Storage == "" {
 		c.Media.Storage = "local"
 	}
+	if c.Media.RateLimit == nil {
+		limit := 600
+		c.Media.RateLimit = &limit
+	}
+	if c.Media.RateWindow == "" {
+		c.Media.RateWindow = "1m"
+	}
 	if c.Media.OSS.PathPrefix == "" {
 		c.Media.OSS.PathPrefix = "media"
 	}
@@ -752,6 +783,13 @@ func (c *Config) setDefault() {
 		c.Search.Index = "wiki_x"
 	}
 	c.Search.Index = strings.TrimSpace(c.Search.Index)
+	if c.Search.RateLimit == nil {
+		limit := 30
+		c.Search.RateLimit = &limit
+	}
+	if c.Search.RateWindow == "" {
+		c.Search.RateWindow = "1m"
+	}
 	c.Metrics.Path = strings.TrimSpace(c.Metrics.Path)
 	if c.Metrics.Path == "" {
 		c.Metrics.Path = "/-/metrics"
@@ -997,6 +1035,14 @@ func (c *Config) check() error {
 	if c.Media.MaxSize < 1 {
 		return fmt.Errorf("media.max_size must be positive")
 	}
+	if c.Media.RateLimitValue() < 0 {
+		return fmt.Errorf("media.rate_limit must not be negative")
+	}
+	if c.Media.RateLimitValue() > 0 {
+		if window, err := time.ParseDuration(c.Media.RateWindow); err != nil || window <= 0 {
+			return fmt.Errorf("media.rate_window must be a positive duration")
+		}
+	}
 	switch c.Media.Storage {
 	case "local":
 	case "oss":
@@ -1091,6 +1137,14 @@ func (c *Config) check() error {
 	}
 	if (c.Search.Backend == "postgres" || c.Search.Backend == "meilisearch") && c.Content.Source != "postgres" {
 		return fmt.Errorf("search.backend %s requires content.source postgres", c.Search.Backend)
+	}
+	if c.Search.RateLimitValue() < 0 {
+		return fmt.Errorf("search.rate_limit must not be negative")
+	}
+	if c.Search.RateLimitValue() > 0 {
+		if window, err := time.ParseDuration(c.Search.RateWindow); err != nil || window <= 0 {
+			return fmt.Errorf("search.rate_window must be a positive duration")
+		}
 	}
 	if c.Search.Backend == "meilisearch" {
 		if !strings.HasPrefix(c.Search.URL, "http://") && !strings.HasPrefix(c.Search.URL, "https://") {
@@ -1258,6 +1312,36 @@ func validSearchIndex(name string) bool {
 
 func (c RateLimitConfig) WindowDuration() time.Duration {
 	value, _ := time.ParseDuration(c.Window)
+	if value <= 0 {
+		return time.Minute
+	}
+	return value
+}
+
+func (c MediaConfig) RateLimitValue() int {
+	if c.RateLimit == nil {
+		return 0
+	}
+	return *c.RateLimit
+}
+
+func (c SearchConfig) RateLimitValue() int {
+	if c.RateLimit == nil {
+		return 0
+	}
+	return *c.RateLimit
+}
+
+func (c MediaConfig) RateWindowDuration() time.Duration {
+	value, _ := time.ParseDuration(c.RateWindow)
+	if value <= 0 {
+		return time.Minute
+	}
+	return value
+}
+
+func (c SearchConfig) RateWindowDuration() time.Duration {
+	value, _ := time.ParseDuration(c.RateWindow)
 	if value <= 0 {
 		return time.Minute
 	}

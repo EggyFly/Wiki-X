@@ -23,6 +23,7 @@ var migrationFS embed.FS
 var (
 	ErrNotFound           = errors.New("not found")
 	ErrEditConflict       = errors.New("edit conflict")
+	ErrRouteExists        = errors.New("route already exists")
 	ErrRevokeDisabled     = errors.New("deleting this section is disabled")
 	ErrIdentityTaken      = errors.New("identity is already linked to another user")
 	ErrProtected          = errors.New("page is protected")
@@ -32,6 +33,8 @@ var (
 	ErrUserExists         = errors.New("user already exists")
 	ErrEmailExists        = errors.New("email already exists")
 	ErrBadEntity          = errors.New("entity data is invalid")
+	ErrBadInteractive     = errors.New("interactive node is invalid")
+	ErrInteractiveExists  = errors.New("interactive node already exists")
 	ErrEntityExists       = errors.New("entity already exists")
 	ErrEntityTypeExists   = errors.New("entity type already exists")
 	ErrEntityFieldExists  = errors.New("entity field already exists")
@@ -56,13 +59,14 @@ func (s *Store) revokeEnabled(section string) bool {
 }
 
 const (
-	SectionPage       = revoke.SectionPage
-	SectionUser       = revoke.SectionUser
-	SectionGroup      = revoke.SectionGroup
-	SectionEntity     = revoke.SectionEntity
-	SectionInvite     = revoke.SectionInvite
-	SectionOIDCClient = revoke.SectionOIDCClient
-	SectionWatchlist  = revoke.SectionWatchlist
+	SectionPage        = revoke.SectionPage
+	SectionUser        = revoke.SectionUser
+	SectionGroup       = revoke.SectionGroup
+	SectionEntity      = revoke.SectionEntity
+	SectionInvite      = revoke.SectionInvite
+	SectionOIDCClient  = revoke.SectionOIDCClient
+	SectionWatchlist   = revoke.SectionWatchlist
+	SectionInteractive = revoke.SectionInteractive
 )
 
 func Open(ctx context.Context, cfg config.DatabaseConfig) (*Store, error) {
@@ -114,6 +118,58 @@ func (s *Store) read() readQuerier {
 		return s.pool
 	}
 	return readRouter{primary: s.pool, replica: s.replica}
+}
+
+// strong 专供启动加载和刚写完立即读的场景, 永远读主库, 避免复制延迟读到旧内容.
+func (s *Store) strong() readQuerier {
+	return s.pool
+}
+
+// BeginTx 开启主库事务; 事务对象复用 Store 的方法签名, 业务层在事务内外调用同一套代码.
+func (s *Store) BeginTx(ctx context.Context) (*TxHandle, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &TxHandle{store: s, tx: tx}, nil
+}
+
+type TxHandle struct {
+	store *Store
+	tx    pgx.Tx
+}
+
+func (h *TxHandle) Rollback(ctx context.Context) error {
+	return h.tx.Rollback(ctx)
+}
+
+func (h *TxHandle) Commit(ctx context.Context) error {
+	return h.tx.Commit(ctx)
+}
+
+func (h *TxHandle) ListEntityTypes(ctx context.Context) ([]*EntityType, error) {
+	return h.store.listEntityTypes(ctx, h.tx)
+}
+
+func (h *TxHandle) CreateEntityType(ctx context.Context, name, label string, actorID int64) (*EntityType, error) {
+	return h.store.createEntityTypeTx(ctx, h.tx, name, label, actorID)
+}
+
+func (h *TxHandle) AddEntityField(ctx context.Context, typeID int64, name, label, kind string, required bool, options []string, sortOrder int, actorID int64) error {
+	return h.store.addEntityFieldTx(ctx, h.tx, typeID, name, label, kind, required, options, sortOrder, actorID)
+}
+
+func (h *TxHandle) GetEntityByName(ctx context.Context, name string) (*EntityRecord, error) {
+	row := h.tx.QueryRow(ctx, entitySelectSQL+` WHERE e.name = $1 AND e.revoked_at IS NULL AND t.revoked_at IS NULL`, name)
+	item, err := scanEntityRecord(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return item, err
+}
+
+func (h *TxHandle) SaveEntity(ctx context.Context, in EntityInput) (*EntityRecord, error) {
+	return h.store.saveEntityTx(ctx, h.tx, in)
 }
 
 func (s *Store) Close() {

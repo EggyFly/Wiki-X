@@ -51,6 +51,12 @@
               <button class="btn btn-small" type="submit">{{$.T.page_restore}}</button>
             </form>
             {{else}}
+            <form method="post" action="/admin/pages/rename" class="inline-form">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="route" value="{{.Route}}">
+              <input name="new_route" maxlength="2048" placeholder="{{$.T.page_rename_hint}}" required>
+              <button class="btn btn-small" type="submit">{{$.T.page_rename}}</button>
+            </form>
             <form method="post" action="/admin/pages/delete" class="form-grid compact-form">
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
               <input type="hidden" name="route" value="{{.Route}}">

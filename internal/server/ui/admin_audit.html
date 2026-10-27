@@ -6,7 +6,8 @@
       <p class="muted">{{.T.audit_hint}}</p>
     </div>
     <div class="toolbar">
-      <a class="btn" href="/admin/audit/export?q={{.Query}}&from={{.From}}&to={{.To}}">{{.T.export_csv}}</a>
+      <a class="btn" href="/admin/audit/export?q={{urlquery .Query}}&from={{.From}}&to={{.To}}">{{.T.export_csv}}</a>
+      <span class="muted">{{.T.audit_export_hint}}</span>
       <a class="btn" href="/admin/users">{{.T.user_admin}}</a>
     </div>
   </div>

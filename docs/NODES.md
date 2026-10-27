@@ -19,7 +19,10 @@
 | `core.page` | page | `/{route}/` | Markdown 内容页 |
 | `core.locale_page` | page | `/{locale}/{route}/` | 多语言内容页 |
 | `core.search` | page | `/search` | 站内搜索 |
-| `core.media` | asset | `/media/` | 本地或 OSS 媒体 |
+| `core.media` | asset | `/media/` | 本地或 OSS 媒体, 上传图片有 `t-*.jpg` 缩略图 |
+| `core.seo.robots` | page | `/robots.txt` | 爬虫规则 |
+| `core.seo.sitemap` | page | `/sitemap.xml` | 站点地图 |
+| `core.seo.feed` | page | `/feed.xml` | RSS 2.0 订阅 |
 | `core.assets.theme` | asset | `/assets/` | 主题资源 |
 | `core.assets.ui` | asset | `/-/assets/` | UI 静态资源 |
 | `core.health` | ops | `/-/healthz` | 健康检查 |
@@ -69,7 +72,9 @@
 | `content.review_reject` | action | `/review/reject` | 拒绝修订 |
 | `content.protect` | action | `/protect` | 修改保护级别 |
 | `content.translations` | page | `/translations` | 翻译管理 |
-| `content.entities` | page | `/entities` | 结构化实体图鉴 |
+| `content.entities` | page | `/entities` | 结构化实体图鉴, 支持类型筛选和分页 |
+| `content.widget` | page | `/widgets/{key}` | 可交互元件 |
+| `content.game` | page | `/games/{key}` | 内置小游戏 |
 | `content.discussion` | page | `/discussion` | 页面讨论 |
 | `content.discussion_add` | action | `/discussion/add` | 发表评论 |
 | `content.discussion_hide` | action | `/discussion/hide` | 隐藏评论 |
@@ -98,6 +103,7 @@
 | `admin.pages` | page | `/admin/pages` | 页面管理 |
 | `admin.pages.delete` | action | `/admin/pages/delete` | 撤销页面 |
 | `admin.pages.restore` | action | `/admin/pages/restore` | 恢复页面 |
+| `admin.pages.rename` | action | `/admin/pages/rename` | 移动页面路由并迁移讨论/监视 |
 | `admin.reports` | page | `/admin/reports` | 举报管理 |
 | `admin.audit` | page | `/admin/audit` | 审计日志 |
 | `admin.audit.export` | action | `/admin/audit/export` | 导出 CSV |
@@ -108,6 +114,9 @@
 | `admin.entities.fields.delete` | action | `/admin/entities/fields/delete` | 撤销字段 |
 | `admin.entities.save` | action | `/admin/entities/save` | 保存实体 |
 | `admin.entities.delete` | action | `/admin/entities/delete` | 撤销实体 |
+| `admin.interactive` | page | `/admin/interactive` | Widget/Game 节点管理 |
+| `admin.interactive.save` | action | `/admin/interactive/save` | 保存互动节点 |
+| `admin.interactive.delete` | action | `/admin/interactive/delete` | 撤销互动节点 |
 | `admin.invites` | page | `/admin/invites` | 邀请码管理 |
 | `admin.invites.create` | action | `/admin/invites/create` | 创建邀请码 |
 | `admin.invites.delete` | action | `/admin/invites/delete` | 撤销邀请码 |
@@ -215,6 +224,9 @@ Markdown 兼容说明见 [使用手册 12.1](README.md#121-markdown-兼容与安
 | `cli.user_create` | `wiki_x user create` | 创建用户 |
 | `cli.user_grant` | `wiki_x user grant` | 授予用户组 |
 | `cli.search_reindex` | `wiki_x search reindex` | 重建 Meilisearch 索引 |
+| `cli.entity_export` | `wiki_x entity export` | 导出实体类型、字段和实体 JSON |
+| `cli.entity_import` | `wiki_x entity import` | 批量导入实体 JSON |
+| `cli.media_thumbs` | `wiki_x media thumbs` | 为历史图片媒体回填 320 像素缩略图 |
 | `cli.warm` | `wiki_x warm` | 预热页面缓存 |
 | `cli.audit_archive` | `wiki_x audit archive` | 归档审计日志 |
 | `cli.version` | `wiki_x version` | 版本 |
@@ -231,7 +243,7 @@ Markdown 兼容说明见 [使用手册 12.1](README.md#121-markdown-兼容与安
 
 内容:
 
-`page.protect`, `page.delete`, `page.restore`, `revision.submit`, `revision.publish`, `revision.approve`, `revision.reject`
+`page.protect`, `page.delete`, `page.restore`, `page.rename`, `revision.submit`, `revision.publish`, `revision.approve`, `revision.reject`
 
 评论与举报:
 
@@ -240,6 +252,10 @@ Markdown 兼容说明见 [使用手册 12.1](README.md#121-markdown-兼容与安
 实体:
 
 `entity_type.create`, `entity_type.delete`, `entity_type.restore`, `entity_field.create`, `entity_field.delete`, `entity_field.restore`, `entity.create`, `entity.update`, `entity.delete`, `entity.restore`
+
+互动节点:
+
+`interactive.create`, `interactive.update`, `interactive.delete`, `interactive.restore`
 
 OIDC:
 
@@ -264,22 +280,25 @@ GitHub:
 | `invite` | 邀请码 | `invite_codes.revoked_at` |
 | `oidc_client` | OIDC 应用 | `oidc_clients.revoked_at` |
 | `watchlist` | 监视列表 | `watchlist.revoked_at` |
+| `interactive` | Widget/Game 节点 | `interactive_nodes.revoked_at` |
 
 `revoke.json` 中把 section 设为 `false` 表示该 section 的删除入口关闭, 不表示物理删除.
 
 ## 13 后续父子与互动节点
 
-下面这些 ID 预留给后续数据模型, 当前还没有持久化表:
+`widget.*` 和 `game.*` 已经有最小实现: `interactive_nodes` 表按 `node_type + node_key` 保存, 公开路由是 `/widgets/{key}` 和 `/games/{key}`, 后台入口是 `/admin/interactive`; `config.kind` 目前内置 `card` 和 `quiz`.
+
+下面这些 ID 仍然预留给后续数据模型:
 
 - `board.*`: 板块
 - `board.*.thread.*`: 板块帖子
 - `thread.*.reply.*`: 回复
-- `widget.*`: 可交互元件
 - `widget.*.child.*`: 子元件
-- `game.*`: 内置小游戏
 - `content_type.*`: 可配置内容类型
 - `field.*`: 内容类型字段
-- `plugin.*`: 如果以后恢复扩展系统
+- `plugin.*`: 编译期扩展点, 见 `internal/extension`
+
+`plugin.*` 没有动态加载: 站点 fork 在 `internal/extension` 里调用 `Register(kind, renderer)` 增加 widget/game 渲染器, 不执行运行时下载或反射调用; 这样避免插件越过权限和模板转义边界.
 
 新增这些节点时, 建议沿用 `parent_id` + `node_id` + `node_type` 的结构, 不要复用现有路由或 section ID.
 

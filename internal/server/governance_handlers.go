@@ -51,7 +51,7 @@ func (a *App) handleProtect(w http.ResponseWriter, r *http.Request) {
 		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法修改页面保护状态.")
 		return
 	}
-	a.reloadSite(r.Context())
+	a.reloadPage(r.Context(), route)
 	a.invalidateRoute(r.Context(), route)
 	notice := "unprotected"
 	switch level {

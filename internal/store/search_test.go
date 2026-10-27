@@ -45,4 +45,12 @@ func TestSearchPages(t *testing.T) {
 	if err != nil || len(results) != 1 || results[0].Title != "Guide" {
 		t.Fatalf("title results = %+v, %v", results, err)
 	}
+	results, err = data.SearchPages(ctx, "%", 10)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("percent wildcard results = %+v, %v", results, err)
+	}
+	results, err = data.SearchPages(ctx, "_", 10)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("underscore wildcard results = %+v, %v", results, err)
+	}
 }

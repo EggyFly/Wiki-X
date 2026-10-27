@@ -28,8 +28,12 @@ func (a *App) servePage(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, cleanPath)
 		return
 	}
-	if !strings.HasSuffix(r.URL.Path, "/") && a.site.HasRoute(r.URL.Path+"/") {
+	if !strings.HasSuffix(r.URL.Path, "/") && a.site.HasRouteFold(r.URL.Path+"/") {
 		redirect(w, r, r.URL.Path+"/")
+		return
+	}
+	if canonical, ok := a.site.CanonicalRoute(r.URL.Path); ok && canonical != r.URL.Path {
+		redirect(w, r, canonical)
 		return
 	}
 

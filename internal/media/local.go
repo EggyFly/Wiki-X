@@ -71,6 +71,14 @@ func (s *Local) Open(name string) (*os.File, error) {
 	return os.Open(filepath.Join(s.dir, name))
 }
 
+func (s *Local) Has(name string) bool {
+	if err := safeName(name); err != nil {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(s.dir, name))
+	return err == nil
+}
+
 func safeName(name string) error {
 	if name == "" || name == "." || name == ".." || filepath.Base(name) != name {
 		return fmt.Errorf("invalid media name %q", name)

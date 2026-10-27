@@ -693,7 +693,7 @@ func openTestStore(t *testing.T) *Store {
 	if err := s.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.pool.Exec(ctx, `TRUNCATE comment_reports, watchlist, comments, audit_logs, media, sessions, page_revisions, pages, entity_fields, entities, entity_types, email_tokens, invite_codes, identities, user_groups, users RESTART IDENTITY CASCADE`)
+	_, err = s.pool.Exec(ctx, `TRUNCATE comment_reports, watchlist, comments, audit_logs, media, sessions, page_revisions, pages, entity_fields, entities, entity_types, interactive_nodes, email_tokens, invite_codes, identities, user_groups, users RESTART IDENTITY CASCADE`)
 	if err != nil {
 		t.Fatal(err)
 	}

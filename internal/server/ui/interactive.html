@@ -1,0 +1,7 @@
+{{define "main"}}
+<section class="panel">
+  <h1>{{.Node.Title}}</h1>
+  {{if .Node.Description}}<p class="muted">{{.Node.Description}}</p>{{end}}
+  {{.Rendered}}
+</section>
+{{end}}

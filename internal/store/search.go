@@ -19,18 +19,20 @@ func (s *Store) SearchPages(ctx context.Context, query string, limit int) ([]*Se
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	rows, err := s.read().Query(ctx, `SELECT route, title,
+	like := escapeLike(query)
+	rows, err := s.read().Query(ctx, `WITH q AS (SELECT plainto_tsquery('simple', $1) AS tsq)
+		SELECT route, title,
 			CASE WHEN strpos(lower(body), lower($1)) > 0
 				THEN substring(body from greatest(strpos(lower(body), lower($1)) - 80, 1) for 240)
 				ELSE left(body, 240) END AS snippet
-		FROM pages
+		FROM pages, q
 		WHERE draft = false AND deleted_at IS NULL
-			AND (title ILIKE '%' || $1 || '%' OR description ILIKE '%' || $1 || '%' OR body ILIKE '%' || $1 || '%'
-				OR to_tsvector('simple', title || ' ' || description || ' ' || body) @@ plainto_tsquery('simple', $1))
-		ORDER BY (CASE WHEN title ILIKE '%' || $1 || '%' THEN 1 ELSE 0 END) DESC,
-			ts_rank(to_tsvector('simple', title || ' ' || description || ' ' || body), plainto_tsquery('simple', $1)) DESC,
+			AND (title ILIKE '%' || $2 || '%' ESCAPE E'\\' OR description ILIKE '%' || $2 || '%' ESCAPE E'\\'
+				OR body ILIKE '%' || $2 || '%' ESCAPE E'\\' OR search_vector @@ q.tsq)
+		ORDER BY (CASE WHEN title ILIKE '%' || $2 || '%' ESCAPE E'\\' THEN 1 ELSE 0 END) DESC,
+			ts_rank(search_vector, q.tsq) DESC,
 			updated_at DESC
-		LIMIT $2`, query, limit)
+		LIMIT $3`, query, like, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -44,4 +46,9 @@ func (s *Store) SearchPages(ctx context.Context, query string, limit int) ([]*Se
 		results = append(results, item)
 	}
 	return results, rows.Err()
+}
+
+func escapeLike(value string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return replacer.Replace(value)
 }

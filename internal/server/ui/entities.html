@@ -1,7 +1,7 @@
 {{define "main"}}
 <section class="panel">
   <h1>{{.T.entities_title}}</h1>
-  <p class="muted">{{.T.entities_hint}}</p>
+  <p class="muted">{{.T.entities_hint}} {{.T.entity_total}} {{.Total}}</p>
   <div class="toolbar entity-filter">
     <a class="btn btn-small" href="/entities">{{.T.entity_all}}</a>
     {{range .Types}}<a class="btn btn-small" href="/entities?type={{.Name}}">{{.Label}}</a>{{end}}
@@ -47,7 +47,14 @@
             <div class="muted"><code>{{.Name}}</code> · {{.TypeLabel}}</div>
           </td>
           {{$item := .}}
-          {{range $.Fields}}<td>{{index $item.Data .Name}}</td>{{end}}
+          {{range $.Fields}}
+          <td>
+            {{$value := index $item.Data .Name}}
+            {{if eq .Kind "image"}}
+              {{with $value}}<a href="{{.}}"><img class="entity-thumb" src="{{thumb .}}" width="96" height="96" loading="lazy" decoding="async" alt=""></a>{{end}}
+            {{else}}{{$value}}{{end}}
+          </td>
+          {{end}}
         </tr>
         {{end}}
       </tbody>
@@ -55,6 +62,13 @@
   </div>
   {{else}}
   <p class="muted">{{.T.entity_none}}</p>
+  {{end}}
+  {{if gt .Pager.Pages 1}}
+  <div class="toolbar pager">
+    {{if .Pager.HasPrev}}<a class="btn btn-small" href="/entities?type={{urlquery .TypeName}}&sort={{urlquery .Sort}}&order={{.Order}}&page={{.Pager.PrevPage}}">{{.T.prev_page}}</a>{{end}}
+    <span class="muted">{{.Pager.Page}} / {{.Pager.Pages}}</span>
+    {{if .Pager.HasNext}}<a class="btn btn-small" href="/entities?type={{urlquery .TypeName}}&sort={{urlquery .Sort}}&order={{.Order}}&page={{.Pager.NextPage}}">{{.T.next_page}}</a>{{end}}
+  </div>
   {{end}}
 </section>
 {{end}}

@@ -257,6 +257,11 @@ func (a *App) handleEditSave(w http.ResponseWriter, r *http.Request) {
 		a.renderMessage(w, r, http.StatusForbidden, "页面已保护", "这个页面已被保护, 只有审核员可以编辑.")
 		return
 	}
+	if errors.Is(err, store.ErrRouteExists) {
+		data.Error = "这个路由已经被其他页面占用, 大小写不同的同名路由也算冲突."
+		a.renderEdit(w, r, http.StatusConflict, data)
+		return
+	}
 	if errors.Is(err, store.ErrEditConflict) {
 		data.Error = "页面已经被其他人修改, 请刷新历史后再编辑."
 		a.renderEdit(w, r, http.StatusConflict, data)
@@ -271,7 +276,7 @@ func (a *App) handleEditSave(w http.ResponseWriter, r *http.Request) {
 	notice := "pending"
 	if revision.Status == store.StatusPublished {
 		notice = "published"
-		a.reloadSite(r.Context())
+		a.reloadPage(r.Context(), route)
 		a.invalidateRoute(r.Context(), route)
 		a.syncSearchDocument(r.Context(), route)
 	}
@@ -551,7 +556,7 @@ func (a *App) handleReviewApprove(w http.ResponseWriter, r *http.Request) {
 		a.renderMessage(w, r, http.StatusInternalServerError, "操作失败", "暂时无法发布这个版本.")
 		return
 	}
-	a.reloadSite(r.Context())
+	a.reloadPage(r.Context(), route)
 	a.invalidateRoute(r.Context(), route)
 	a.syncSearchDocument(r.Context(), route)
 	a.redirect(w, r, "/review?notice=approved", http.StatusSeeOther)
@@ -616,6 +621,39 @@ func (a *App) reloadSite(ctx context.Context) {
 	defer cancel()
 	if err := a.site.Reload(reloadCtx); err != nil {
 		slog.Error("reload after publish failed", "err", err)
+	}
+}
+
+func (a *App) reloadPage(ctx context.Context, route string) {
+	reloadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+	if err := a.site.ReloadPage(reloadCtx, route); err != nil {
+		slog.Error("reload page failed, falling back to full reload", "route", route, "err", err)
+		if err := a.site.Reload(reloadCtx); err != nil {
+			slog.Error("full reload after page reload failed", "err", err)
+		}
+	}
+}
+
+func (a *App) removePage(ctx context.Context, route string) {
+	reloadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+	if err := a.site.RemoveRoute(reloadCtx, route); err != nil {
+		slog.Error("remove page from site failed, falling back to full reload", "route", route, "err", err)
+		if err := a.site.Reload(reloadCtx); err != nil {
+			slog.Error("full reload after page removal failed", "err", err)
+		}
+	}
+}
+
+func (a *App) reloadEntities(ctx context.Context) {
+	reloadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+	if err := a.site.ReloadEntities(reloadCtx); err != nil {
+		slog.Error("reload entities failed, falling back to full reload", "err", err)
+		if err := a.site.Reload(reloadCtx); err != nil {
+			slog.Error("full reload after entity reload failed", "err", err)
+		}
 	}
 }
 

@@ -137,11 +137,16 @@ func (a *App) handleAdminAuditExport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid date", http.StatusBadRequest)
 		return
 	}
-	logs, err := a.store.ListAuditLogs(r.Context(), filter, 5000, 0)
+	logs, err := a.store.ListAuditLogs(r.Context(), filter, 5001, 0)
 	if err != nil {
 		slog.Error("export audit logs failed", "err", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
+	}
+	if len(logs) > 5000 {
+		logs = logs[:5000]
+		w.Header().Set("X-Result-Truncated", "true")
+		w.Header().Set("X-Result-Limit", "5000")
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="audit-`+time.Now().Format("20060102")+`.csv"`)

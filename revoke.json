@@ -6,6 +6,7 @@
     "entity": true,
     "invite": true,
     "oidc_client": true,
-    "watchlist": true
+    "watchlist": true,
+    "interactive": true
   }
 }

@@ -1,0 +1,88 @@
+{{define "main"}}
+<section class="panel">
+  <h1>{{.T.interactive_admin}}</h1>
+  <p class="muted">{{.T.interactive_hint}}</p>
+</section>
+
+<section class="panel">
+  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+  {{$edit := .Edit}}
+  <form method="post" action="/admin/interactive/save" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    {{if and $edit (gt $edit.ID 0)}}<input type="hidden" name="id" value="{{$edit.ID}}">{{end}}
+    <label class="field">
+      <span>{{.T.interactive_type}}</span>
+      <select name="node_type">
+        <option value="widget"{{if and $edit (eq $edit.NodeType "widget")}} selected{{end}}>{{.T.interactive_widget}}</option>
+        <option value="game"{{if and $edit (eq $edit.NodeType "game")}} selected{{end}}>{{.T.interactive_game}}</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>{{.T.interactive_key}}</span>
+      <input name="key" maxlength="100" required value="{{if $edit}}{{$edit.Key}}{{end}}" placeholder="daily-quiz">
+    </label>
+    <label class="field">
+      <span>{{.T.interactive_title}}</span>
+      <input name="title" maxlength="200" required value="{{if $edit}}{{$edit.Title}}{{end}}">
+    </label>
+    <label class="field">
+      <span>{{.T.interactive_description}}</span>
+      <input name="description" maxlength="2000" value="{{if $edit}}{{$edit.Description}}{{end}}">
+    </label>
+    <label class="field">
+      <span>{{.T.interactive_config}}</span>
+      <textarea name="config" rows="8" spellcheck="false">{{.ConfigJSON}}</textarea>
+      <span class="muted">{{.T.interactive_config_hint}}</span>
+    </label>
+    <label class="field checkbox-field">
+      <input type="checkbox" name="enabled" value="1"{{if not $edit}} checked{{else if $edit.Enabled}} checked{{end}}>
+      <span>{{.T.interactive_enabled}}</span>
+    </label>
+    <div class="toolbar">
+      <button class="btn btn-primary" type="submit">{{.T.interactive_save}}</button>
+      {{if and $edit (gt $edit.ID 0)}}<a class="btn" href="/admin/interactive">{{.T.interactive_new}}</a>{{end}}
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  {{if .Nodes}}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr><th>{{.T.interactive_type}}</th><th>{{.T.interactive_key}}</th><th>{{.T.interactive_title}}</th><th>{{.T.status}}</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{range .Nodes}}
+        <tr>
+          <td>{{if eq .NodeType "game"}}{{$.T.interactive_game}}{{else}}{{$.T.interactive_widget}}{{end}}</td>
+          <td><code>{{.Key}}</code></td>
+          <td><a href="{{if eq .NodeType "game"}}/games/{{else}}/widgets/{{end}}{{.Key}}">{{.Title}}</a></td>
+          <td>{{if .Enabled}}{{$.T.active}}{{else}}{{$.T.no}}{{end}}</td>
+          <td>
+            <div class="toolbar">
+              <a class="btn btn-small" href="/admin/interactive?edit={{.ID}}">{{$.T.interactive_edit}}</a>
+              <form method="post" action="/admin/interactive/delete" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <button class="btn btn-danger btn-small" type="submit">{{$.T.interactive_delete}}</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="muted">{{.T.interactive_none}}</p>
+  {{end}}
+  {{if gt .Pager.Pages 1}}
+  <div class="toolbar pager">
+    {{if .Pager.HasPrev}}<a class="btn btn-small" href="/admin/interactive?page={{.Pager.PrevPage}}">{{.T.prev_page}}</a>{{end}}
+    <span class="muted">{{.Pager.Page}} / {{.Pager.Pages}}</span>
+    {{if .Pager.HasNext}}<a class="btn btn-small" href="/admin/interactive?page={{.Pager.NextPage}}">{{.T.next_page}}</a>{{end}}
+  </div>
+  {{end}}
+</section>
+{{end}}

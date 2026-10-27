@@ -202,7 +202,7 @@ func validateInfobox(spec *infoboxSpec) error {
 		return specError("title 不能超过 200 个字符")
 	}
 	if spec.Image != "" && !validSitePath(spec.Image) {
-		return specError("image 必须是站内绝对路径")
+		return specError("image 必须是站内绝对路径, 且不能包含 .. 路径段")
 	}
 	if len(spec.Rows) > 20 {
 		return specError("rows 数量不能超过 20")
@@ -249,8 +249,10 @@ func validSitePath(path string) bool {
 	if err != nil || parsed.Scheme != "" || parsed.Host != "" || parsed.Opaque != "" {
 		return false
 	}
-	if strings.Contains(parsed.Path, "..") {
-		return false
+	for _, segment := range strings.Split(parsed.Path, "/") {
+		if segment == ".." {
+			return false
+		}
 	}
 	for _, r := range path {
 		if r < 0x20 {
@@ -262,7 +264,7 @@ func validSitePath(path string) bool {
 
 var infoboxTemplate = template.Must(template.New("infobox").Parse(
 	`<aside class="wx-infobox">` +
-		`{{with .Image}}<img class="wx-infobox-image" src="{{.}}" alt="{{$.Title}}">{{end}}` +
+		`{{with .Image}}<img class="wx-infobox-image" src="{{.}}" alt="{{$.Title}}" loading="lazy" decoding="async">{{end}}` +
 		`<div class="wx-infobox-body">` +
 		`<h3 class="wx-infobox-title">{{.Title}}</h3>` +
 		`{{with .Caption}}<p class="wx-infobox-caption">{{.}}</p>{{end}}` +
@@ -358,7 +360,7 @@ func validateGallery(spec *gallerySpec) error {
 	}
 	for i, image := range spec.Images {
 		if !validSitePath(image.Image) {
-			return specError("images[%d].image 必须是站内绝对路径", i)
+			return specError("images[%d].image 必须是站内绝对路径, 且不能包含 .. 路径段", i)
 		}
 		if utf8.RuneCountInString(image.Caption) > 200 {
 			return specError("images[%d].caption 不能超过 200 个字符", i)
@@ -369,7 +371,7 @@ func validateGallery(spec *gallerySpec) error {
 
 var galleryTemplate = template.Must(template.New("gallery").Parse(
 	`<div class="wx-gallery">{{range .Images}}` +
-		`<figure class="wx-gallery-item"><img src="{{.Image}}" alt="{{.Caption}}">` +
+		`<figure class="wx-gallery-item"><img src="{{.Image}}" alt="{{.Caption}}" loading="lazy" decoding="async">` +
 		`{{with .Caption}}<figcaption>{{.}}</figcaption>{{end}}</figure>{{end}}</div>`))
 
 func renderAudio(body []byte, lookup EntityLookup) (template.HTML, error) {
@@ -402,7 +404,7 @@ func validateAudio(spec *audioSpec) error {
 		return specError("src 不能为空")
 	}
 	if !validAudioPath(spec.Src) {
-		return specError("src 必须是站内 wav/mp3/ogg/flac 路径")
+		return specError("src 必须是站内 wav/mp3/ogg/flac 路径, 且不能包含 .. 路径段")
 	}
 	if utf8.RuneCountInString(spec.Title) > 200 {
 		return specError("title 不能超过 200 个字符")

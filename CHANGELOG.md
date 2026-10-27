@@ -19,6 +19,13 @@
 ### 新增
 
 - `wiki_x setup`: 自动创建不存在的数据库、执行迁移, 可选导入内容和创建管理员
+- 站点自动输出 `/robots.txt`、`/sitemap.xml` 和 `/feed.xml`, 静态构建同步生成; layout 增加 RSS alternate 链接
+- PG 上传图片自动生成 320 像素缩略图, 图鉴图片字段优先使用缩略图, `/media/` 元数据增加进程内缓存和独立限流
+- `/admin/pages` 增加页面移动, 事务内迁移讨论和监视列表, 写 `page.rename` 审计
+- `wiki_x entity export/import`: 批量导出和导入实体类型、字段和实体 JSON
+- `wiki_x media thumbs`: 为升级前上传的历史图片批量回填 320 像素缩略图, `-force` 重新生成
+- `/admin/interactive` 和 `/widgets/{key}`、`/games/{key}`: 最小 widget/game 节点实现, 内置 `card` 和 `quiz`
+- `internal/extension`: 编译期渲染器注册表, 站点 fork 可以增加 widget/game kind
 - 根目录 `wiki_x.yaml` 和 `.env` 一键启动: 默认 Git 模式, 不需要 `-config` 和数据库
 - 音频媒体: 上传和 Git 媒体支持 wav/mp3/ogg/flac, Range 播放, `wx-audio` 组件和编辑器工具栏
 - Wwise/FMOD bank 不做解析, 上传时拒绝 `.bnk`/`.wem`/`.bank`/`.fsb`, 要求先导出为网页音频格式
@@ -34,6 +41,16 @@
 
 ### 修复
 
+- 修复 `.gitignore` 的 `build/` 误忽略 `internal/build`, 远端仓库重新可编译; `.gitattributes` 固定 Go 文件 LF
+- 修复审计 CSV 导出被存储层 1000 上限重置成 100 行, 现在最多 5000 行并返回截断响应头
+- 修复搜索把 `%`、`_` 当通配符, 增加生成列 `search_vector` 和 GIN 索引, 搜索默认按 IP 限流
+- 修复图鉴先 LIMIT 2000 再按类型筛选, 改为 SQL 类型过滤、排序、分页和总数
+- 修复内容路由可以占用 `/admin/`、`/login/`、`/oauth2/`、`/search/`、`/u/` 等系统命名空间
+- 修复大小写不同路由冲突被提示成"页面已被其他人修改", 现在返回路由占用; 大小写变体 301 到规范路由
+- 修复组件图片路径把 `1..2.png` 误判为路径穿越, 改为只拒绝完整的 `..` 段
+- PG 模式页面正文改为按需读取, 发布/保护/删除/实体变更改为单页或实体增量刷新, 不再每次写操作全表重载
+- PG 模式启动加载改读主库, 避免主从延迟时首页读到旧内容; 实体导入改成整体事务, 中途失败全部回滚
+- 互动节点后台列表增加分页
 - OIDC 签名私钥不再明文落库, 旧明文密钥首次启动自动加密回写
 - OIDC 过期授权码、refresh token、session 和空 grant 每小时清理
 - refresh token 并发重试不再误撤销整个授权会话, 只拒绝重复请求

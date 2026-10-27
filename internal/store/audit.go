@@ -12,8 +12,11 @@ type AuditFilter struct {
 }
 
 func (s *Store) ListAuditLogs(ctx context.Context, filter AuditFilter, limit, offset int) ([]*AuditLog, error) {
-	if limit <= 0 || limit > 1000 {
+	if limit <= 0 {
 		limit = 100
+	}
+	if limit > 5001 {
+		limit = 5001
 	}
 	if offset < 0 {
 		offset = 0

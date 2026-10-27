@@ -96,6 +96,7 @@ type PageView struct {
 
 type state struct {
 	pages        map[string]*content.Page
+	routeFold    map[string]string
 	routes       []string
 	themes       map[string]*theme.Theme
 	skins        []SkinInfo
@@ -195,6 +196,11 @@ func (s *Site) loadState(ctx context.Context) (*state, error) {
 	if err != nil {
 		return nil, err
 	}
+	if _, ok := s.source.(content.BodySource); ok {
+		for _, page := range pages {
+			page.Body = ""
+		}
+	}
 	themesMap, skins, defaultSkin, err := loadThemes(s.cfg)
 	if err != nil {
 		return nil, err
@@ -220,6 +226,7 @@ func (s *Site) loadState(ctx context.Context) (*state, error) {
 		Switchable:    switchable,
 	}
 	pageMap := make(map[string]*content.Page, len(pages))
+	routeFold := make(map[string]string, len(pages))
 	routes := make([]string, 0, len(pages))
 	for _, page := range pages {
 		if page.Draft {
@@ -231,9 +238,11 @@ func (s *Site) loadState(ctx context.Context) (*state, error) {
 		if err := checkRoute(page.Route); err != nil {
 			return nil, fmt.Errorf("page %s: %w", page.Key, err)
 		}
-		if _, exists := pageMap[page.Route]; exists {
-			return nil, fmt.Errorf("page %s: duplicate route %s", page.Key, page.Route)
+		fold := strings.ToLower(page.Route)
+		if other, exists := routeFold[fold]; exists {
+			return nil, fmt.Errorf("page %s: duplicate route %s (%s)", page.Key, page.Route, other)
 		}
+		routeFold[fold] = page.Route
 		pageMap[page.Route] = page
 		routes = append(routes, page.Route)
 	}
@@ -277,6 +286,7 @@ func (s *Site) loadState(ctx context.Context) (*state, error) {
 	}
 	return &state{
 		pages:        pageMap,
+		routeFold:    routeFold,
 		routes:       routes,
 		themes:       themesMap,
 		skins:        skins,
@@ -379,7 +389,7 @@ func (s *Site) RenderSkin(ctx context.Context, route, skin string) ([]byte, erro
 			return data, nil
 		}
 		started := time.Now()
-		html, err := s.renderPage(st, page, themePack, info, route, locale, baseRoute, fallback)
+		html, err := s.renderPage(ctx, st, page, themePack, info, route, locale, baseRoute, fallback)
 		if err != nil {
 			s.renderFailed.Add(1)
 			return nil, err
@@ -391,6 +401,9 @@ func (s *Site) RenderSkin(ctx context.Context, route, skin string) ([]byte, erro
 		}
 		return html, nil
 	})
+	if errors.Is(err, content.ErrPageNotFound) {
+		return nil, ErrNotFound
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -408,8 +421,12 @@ func (st *state) selectTheme(skin string) (*theme.Theme, string) {
 	return st.themes[st.defaultSkin], st.defaultSkin
 }
 
-func (s *Site) renderPage(st *state, page *content.Page, themePack *theme.Theme, info SiteInfo, requestRoute string, locale config.LocaleConfig, baseRoute string, fallback bool) ([]byte, error) {
-	body, err := s.markdown.ToHTML([]byte(page.Body))
+func (s *Site) renderPage(ctx context.Context, st *state, page *content.Page, themePack *theme.Theme, info SiteInfo, requestRoute string, locale config.LocaleConfig, baseRoute string, fallback bool) ([]byte, error) {
+	bodyText, err := s.pageBody(ctx, page)
+	if err != nil {
+		return nil, fmt.Errorf("load page body %s: %w", page.Key, err)
+	}
+	body, err := s.markdown.ToHTML([]byte(bodyText))
 	if err != nil {
 		return nil, fmt.Errorf("render page %s: %w", page.Key, err)
 	}
@@ -457,15 +474,185 @@ func protectionLevel(page *content.Page) string {
 	return "none"
 }
 
+func (s *Site) pageBody(ctx context.Context, page *content.Page) (string, error) {
+	if page.Body != "" {
+		return page.Body, nil
+	}
+	loader, ok := s.source.(content.BodySource)
+	if !ok {
+		return page.Body, nil
+	}
+	return loader.LoadBody(ctx, page)
+}
+
+func cloneState(st *state) *state {
+	next := *st
+	next.pages = make(map[string]*content.Page, len(st.pages)+1)
+	for route, page := range st.pages {
+		next.pages[route] = page
+	}
+	next.routeFold = make(map[string]string, len(st.routeFold)+1)
+	for fold, route := range st.routeFold {
+		next.routeFold[fold] = route
+	}
+	next.routes = append([]string(nil), st.routes...)
+	next.translations = make(map[string]map[string]string, len(st.translations))
+	for key, locales := range st.translations {
+		copied := make(map[string]string, len(locales))
+		for code, route := range locales {
+			copied[code] = route
+		}
+		next.translations[key] = copied
+	}
+	return &next
+}
+
+func insertRoute(routes []string, route string) []string {
+	index := sort.SearchStrings(routes, route)
+	if index < len(routes) && routes[index] == route {
+		return routes
+	}
+	routes = append(routes, "")
+	copy(routes[index+1:], routes[index:])
+	routes[index] = route
+	return routes
+}
+
+func removeRoute(routes []string, route string) []string {
+	index := sort.SearchStrings(routes, route)
+	if index >= len(routes) || routes[index] != route {
+		return routes
+	}
+	return append(routes[:index], routes[index+1:]...)
+}
+
+func addTranslation(st *state, page *content.Page) {
+	if page.TranslationKey == "" {
+		return
+	}
+	locale, _ := findLocale(st.locales, page.Route)
+	if st.translations[page.TranslationKey] == nil {
+		st.translations[page.TranslationKey] = make(map[string]string)
+	}
+	st.translations[page.TranslationKey][locale.Code] = page.Route
+}
+
+func removeTranslation(st *state, page *content.Page) {
+	if page.TranslationKey == "" {
+		return
+	}
+	locale, _ := findLocale(st.locales, page.Route)
+	group := st.translations[page.TranslationKey]
+	if group == nil {
+		return
+	}
+	delete(group, locale.Code)
+	if len(group) == 0 {
+		delete(st.translations, page.TranslationKey)
+	}
+}
+
 func (s *Site) Reload(ctx context.Context) error {
 	s.reloadMu.Lock()
 	defer s.reloadMu.Unlock()
+	return s.reloadLocked(ctx)
+}
 
+func (s *Site) reloadLocked(ctx context.Context) error {
 	st, err := s.loadState(ctx)
 	if err != nil {
 		return err
 	}
 	s.state.Store(st)
+	s.clearSEOCache(ctx)
+	return nil
+}
+
+func (s *Site) clearSEOCache(ctx context.Context) {
+	base := strings.TrimRight(strings.TrimSpace(s.cfg.Site.BaseURL), "/")
+	if base == "" {
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+	_ = s.cache.Delete(ctx, "sitemap:"+s.configHash+":"+base, "feed:"+s.configHash+":"+base+":50")
+}
+
+func (s *Site) ReloadPage(ctx context.Context, route string) error {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+
+	loader, ok := s.source.(content.PageSource)
+	if !ok {
+		return s.reloadLocked(ctx)
+	}
+	page, err := loader.LoadPage(ctx, route)
+	if err != nil {
+		return err
+	}
+	if page == nil {
+		return s.removeRouteLocked(ctx, route)
+	}
+	if _, ok := s.source.(content.BodySource); ok {
+		page.Body = ""
+	}
+	next := cloneState(s.state.Load())
+	old := next.pages[route]
+	if old != nil {
+		delete(next.pages, route)
+		delete(next.routeFold, strings.ToLower(old.Route))
+		next.routes = removeRoute(next.routes, old.Route)
+		removeTranslation(next, old)
+	}
+	fold := strings.ToLower(page.Route)
+	if other, exists := next.routeFold[fold]; exists && other != route {
+		return fmt.Errorf("duplicate route %s", page.Route)
+	}
+	next.pages[page.Route] = page
+	next.routeFold[fold] = page.Route
+	next.routes = insertRoute(next.routes, page.Route)
+	addTranslation(next, page)
+	s.state.Store(next)
+	s.clearSEOCache(ctx)
+	return nil
+}
+
+func (s *Site) RemoveRoute(ctx context.Context, route string) error {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+
+	if _, ok := s.source.(content.PageSource); !ok {
+		return s.reloadLocked(ctx)
+	}
+	return s.removeRouteLocked(ctx, route)
+}
+
+func (s *Site) removeRouteLocked(ctx context.Context, route string) error {
+	next := cloneState(s.state.Load())
+	page := next.pages[route]
+	if page == nil {
+		return nil
+	}
+	delete(next.pages, route)
+	delete(next.routeFold, strings.ToLower(page.Route))
+	next.routes = removeRoute(next.routes, page.Route)
+	removeTranslation(next, page)
+	s.state.Store(next)
+	s.clearSEOCache(ctx)
+	return nil
+}
+
+func (s *Site) ReloadEntities(ctx context.Context) error {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+
+	entities, hash, err := s.loadEntities(ctx)
+	if err != nil {
+		return err
+	}
+	next := cloneState(s.state.Load())
+	next.entities = entities
+	next.entityHash = hash
+	s.state.Store(next)
 	return nil
 }
 
@@ -496,6 +683,18 @@ func (s *Site) HasRoute(route string) bool {
 	st := s.state.Load()
 	_, ok := st.pages[route]
 	return ok
+}
+
+func (s *Site) HasRouteFold(route string) bool {
+	st := s.state.Load()
+	_, ok := st.routeFold[strings.ToLower(route)]
+	return ok
+}
+
+func (s *Site) CanonicalRoute(route string) (string, bool) {
+	st := s.state.Load()
+	canonical, ok := st.routeFold[strings.ToLower(route)]
+	return canonical, ok
 }
 
 func (s *Site) FindPage(route string) (*content.Page, bool) {
@@ -630,6 +829,9 @@ func (s *Site) Search(query string, limit int) []SearchResult {
 		}
 		if snippet == "" {
 			snippet = cleanSnippet(page.Body)
+		}
+		if snippet == "" {
+			snippet = cleanSnippet(page.Title)
 		}
 		matched = append(matched, scoredResult{
 			SearchResult: SearchResult{Route: route, Title: page.Title, Snippet: snippet},
@@ -880,9 +1082,8 @@ func checkRoute(route string) error {
 		return nil
 	}
 	segments := strings.Split(strings.Trim(route, "/"), "/")
-	first := segments[0]
-	switch strings.ToLower(first) {
-	case "assets", "404.html", "index.html", ".wiki_x-build.json":
+	first := strings.ToLower(segments[0])
+	if _, reserved := reservedRouteRoots[first]; reserved {
 		return fmt.Errorf("route %q uses a reserved path", route)
 	}
 	for _, segment := range segments {
@@ -891,6 +1092,47 @@ func checkRoute(route string) error {
 		}
 	}
 	return nil
+}
+
+var reservedRouteRoots = map[string]struct{}{
+	"assets":             {},
+	"media":              {},
+	"-":                  {},
+	"search":             {},
+	"login":              {},
+	"logout":             {},
+	"verify":             {},
+	"account":            {},
+	"register":           {},
+	"forgot":             {},
+	"reset":              {},
+	"verify-email":       {},
+	"auth":               {},
+	"u":                  {},
+	"watchlist":          {},
+	"watch":              {},
+	"discussion":         {},
+	"edit":               {},
+	"history":            {},
+	"revision":           {},
+	"translations":       {},
+	"entities":           {},
+	"widgets":            {},
+	"games":              {},
+	"review":             {},
+	"protect":            {},
+	"upload":             {},
+	"admin":              {},
+	"oauth2":             {},
+	".well-known":        {},
+	"robots.txt":         {},
+	"sitemap.xml":        {},
+	"feed.xml":           {},
+	"rss.xml":            {},
+	"atom.xml":           {},
+	"404.html":           {},
+	"index.html":         {},
+	".wiki_x-build.json": {},
 }
 
 func checkRouteSegment(segment string) error {

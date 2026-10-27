@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	assetutil "github.com/EggyFly/Wiki-X/internal/assets"
+	"github.com/EggyFly/Wiki-X/internal/media"
 )
 
 type Theme struct {
@@ -40,6 +41,7 @@ func LoadWithAssets(fsys fs.FS, root string, assetFS fs.FS) (*Theme, error) {
 	}
 	funcs := template.FuncMap{
 		"active": isActive,
+		"thumb":  media.ThumbURL,
 	}
 
 	page, err := template.New("layout.html").Funcs(funcs).ParseFS(fsys, name("layout.html"), name("page.html"))

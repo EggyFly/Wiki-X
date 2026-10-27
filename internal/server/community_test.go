@@ -1172,7 +1172,7 @@ func setupCommunityFixture(t *testing.T, ghConfig config.GitHubConfig) (*App, *s
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = pool.Exec(ctx, `TRUNCATE comment_reports, watchlist, comments, audit_logs, media, sessions, page_revisions, pages, entity_fields, entities, entity_types, email_tokens, invite_codes, identities, user_groups, users RESTART IDENTITY CASCADE`)
+	_, err = pool.Exec(ctx, `TRUNCATE comment_reports, watchlist, comments, audit_logs, media, sessions, page_revisions, pages, entity_fields, entities, entity_types, interactive_nodes, email_tokens, invite_codes, identities, user_groups, users RESTART IDENTITY CASCADE`)
 	if err == nil {
 		_, err = pool.Exec(ctx, `TRUNCATE group_rights, groups RESTART IDENTITY CASCADE`)
 	}

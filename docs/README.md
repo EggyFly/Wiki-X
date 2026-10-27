@@ -132,6 +132,8 @@ content:
 
 PG 模式提供 `/translations` 翻译管理页: 按 `translation_key` 分组显示各语言的缺失、已同步、可能过期或需要确认状态. 翻译保存时记录默认语言页面的版本, 默认页面更新后旧翻译会标记为可能过期. 缺失语言会生成带 `translation_key` 的创建链接, 编辑页会自动预填. Git 模式没有这个页面, 翻译状态直接通过仓库维护.
 
+站点自动提供 `/robots.txt`、`/sitemap.xml` 和 `/feed.xml` (RSS 2.0), 静态构建也会写入这三个文件. `site.base_url` 用于生成绝对地址, 留空时 HTTP 访问会按请求 Host 生成且不缓存, 静态构建会跳过 sitemap 和 feed. `/admin/`、`/account/`、`/edit`、`/search` 等系统入口会写进 robots 的 Disallow.
+
 ## 4 缓存
 
 ```yaml
@@ -379,12 +381,13 @@ comment:
     "entity": true,
     "invite": true,
     "oidc_client": true,
-    "watchlist": true
+    "watchlist": true,
+    "interactive": true
   }
 }
 ```
 
-支持的 section 就是上面 7 个. 修改后重启生效. 页面、用户、组、实体、邀请码和 OIDC 应用可以在 `/admin/revoked` 查看和恢复; 实体字段值移除前会把最多 100 条写入审计 detail (4000 字符上限), 但恢复字段不会回填旧值; OIDC 应用恢复后保持禁用, 需要重置 Secret 再启用. 审计动作前缀 (page/user/group/entity/invite/oidc/watch) 继续作为稳定版块标识. `revoke.json` 只控制显式删除入口; 拒绝草稿这种内部清理仍会软撤销页面, 但不会物理删除.
+支持的 section 就是上面 8 个. 修改后重启生效. 页面、用户、组、实体、邀请码、OIDC 应用和互动节点可以在 `/admin/revoked` 查看和恢复; 实体字段值移除前会把最多 100 条写入审计 detail (4000 字符上限), 但恢复字段不会回填旧值; OIDC 应用和互动节点恢复后保持禁用, 需要重新启用. 审计动作前缀 (page/user/group/entity/invite/oidc/watch/interactive) 继续作为稳定版块标识. `revoke.json` 只控制显式删除入口; 拒绝草稿这种内部清理仍会软撤销页面, 但不会物理删除.
 
 ## 9 主题和皮肤
 
@@ -440,6 +443,8 @@ media:
   storage: local
   dir: media
   max_size: 8388608
+  rate_limit: 600
+  rate_window: 1m
   oss:
     endpoint: https://oss-cn-hangzhou.aliyuncs.com
     bucket: my-bucket
@@ -459,6 +464,9 @@ Wwise/FMOD 的 `.bnk`/`.wem`/`.bank`/`.fsb` 不会被解析, 上传时会直接�
 AccessKey 通过 `OSS_ACCESS_KEY_ID` 和 `OSS_ACCESS_KEY_SECRET` 环境变量提供, 不要写进仓库.
 切换 `media.storage` 或修改 `OSS_ACL` 不会迁移或重设已有对象; ACL 只对新上传生效, 切换存储前需要手动迁移旧媒体.
 Git 模式的内容媒体仍然来自内容目录, OSS 只负责 PG 模式的上传媒体.
+
+PG 上传图片会额外生成最长边 320 像素的 `t-*.jpg` 缩略图, 上传响应里带 `thumb_url`; 图鉴的图片字段优先显示缩略图, 找不到缩略图时回退原图. 大于 1600 万像素的图片不会生成缩略图, 避免解码占满内存. 升级前上传的旧图可以执行 `go run ./cmd/wiki_x media thumbs -config wiki_x.yaml` 回填, 只支持 local 存储; `-force` 会重新生成已存在的缩略图.
+`/media/` 元数据在进程内缓存 10 分钟, 上传后立即写入; `media.rate_limit` 默认 600 次/分钟/IP, 和全局限流分开计数, 设为 0 可以关闭.
 
 ## 12 组件指令
 
@@ -549,8 +557,19 @@ PG 模式提供图鉴数据管理:
   ```
   ````
 - 实体字段和显式 `rows` 合并显示, 同名字段以显式行为准, 空字段自动跳过
-- `/entities` 是公开图鉴页: 按类型筛选, 按字段排序, 并链接到绑定了实体的页面
-- 实体数据写入会触发站点重载, 页面缓存键包含实体哈希, 修改实体后旧 HTML 不会被命中
+- `/entities` 是公开图鉴页: 按类型在 SQL 层筛选, 按字段排序, 分页显示总数, 并链接到绑定了实体的页面
+- 实体数据写入会刷新站点实体映射, 页面缓存键包含实体哈希, 修改实体后旧 HTML 不会被命中
+- `wiki_x entity export -file entities.json` 导出类型、字段和实体, `wiki_x entity import -file entities.json -actor admin` 批量导入; 已存在的类型和字段会复用, 同名实体会更新
+- 图鉴图片字段使用缩略图, 外部图片地址保持原样
+
+## 13.1 互动节点
+
+`/admin/interactive` 由 `manage_users` 权限用户维护 widget 和 game 节点:
+
+- 节点按 `node_type + node_key` 唯一, 公开地址分别是 `/widgets/{key}` 和 `/games/{key}`
+- 配置是字符串键值 JSON, `kind` 目前支持 `card` 和 `quiz`; quiz 使用 `question`、`options` (用 `|` 分隔) 和 `answer`
+- 节点禁用后公开页返回 404; 删除是软撤销, 可在 `/admin/revoked` 恢复, 恢复后保持禁用
+- 渲染器注册在 `internal/extension`: fork 可以调用 `extension.Register(kind, renderer)` 增加自己的 kind, 属于编译期扩展, 不做运行时下载或反射加载
 
 ## 14 审计留存
 
@@ -584,9 +603,10 @@ search:
 - `meilisearch`: 查询走 Meilisearch, 需要 `content.source: postgres`; 发布、审核通过、页面删除/恢复和 PR 导入会同步文档
 - 数据库搜索或 Meilisearch 失败会逐级回退, 最终使用进程内搜索并记录警告
 - Meilisearch 首次接入或外部改库后执行 `go run ./cmd/wiki_x search reindex -config wiki_x.yaml`
-- 迁移 014 为未删除页面建立全文 GIN 索引; 中文没有分词器时 PG 后端仍靠 ILIKE
+- 迁移 014 和 018 为未删除页面建立全文 GIN 索引; 中文没有分词器时 PG 后端仍靠 ILIKE
 - 查询上限 200 字符, 结果上限 50 条
-- 环境变量: `SEARCH_BACKEND`, `SEARCH_URL`, `SEARCH_API_KEY`, `SEARCH_INDEX`
+- 搜索默认按 IP 限流 30 次/分钟, `search.rate_limit=0` 可以关闭
+- 环境变量: `SEARCH_BACKEND`, `SEARCH_URL`, `SEARCH_API_KEY`, `SEARCH_INDEX`, `SEARCH_RATE_LIMIT`, `SEARCH_RATE_WINDOW`
 
 ## 16 监控指标
 
@@ -634,6 +654,13 @@ go run ./cmd/wiki_x warm -config wiki_x.yaml -skin compact -concurrency 8
 
 # 按审计保留期归档并清理旧日志
 go run ./cmd/wiki_x audit archive -config wiki_x.yaml
+
+# 导出/导入实体数据
+go run ./cmd/wiki_x entity export -config wiki_x.yaml -file entities.json
+go run ./cmd/wiki_x entity import -config wiki_x.yaml -file entities.json -actor admin
+
+# 为升级前上传的图片回填缩略图, 只支持 local 存储
+go run ./cmd/wiki_x media thumbs -config wiki_x.yaml
 ```
 
 发布、审核通过、页面保护和删除/恢复都会清理对应路由的旧页面缓存; 缓存键本身包含内容版本, 所以即使清理失败也只会留下到 TTL 为止的旧键.

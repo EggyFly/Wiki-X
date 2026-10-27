@@ -42,6 +42,10 @@ func (s *Store) ListRevokedRecords(ctx context.Context, limit int) ([]*RevokedRe
 		UNION ALL
 		SELECT 'oidc_client', c.client_id, c.name, c.revoke_reason, COALESCE(u.name,''), c.revoked_at
 		FROM oidc_clients c LEFT JOIN users u ON u.id=c.revoked_by WHERE c.revoked_at IS NOT NULL
+		UNION ALL
+		SELECT 'interactive', n.id::text, n.node_type || '.' || n.node_key, n.revoke_reason,
+			COALESCE(u.name,''), n.revoked_at
+		FROM interactive_nodes n LEFT JOIN users u ON u.id=n.revoked_by WHERE n.revoked_at IS NOT NULL
 	) x ORDER BY revoked_at DESC, kind, id LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
@@ -183,6 +187,25 @@ func (s *Store) RestoreRevokedRecord(ctx context.Context, kind, id string, actor
 			return err
 		}
 		return finishRestore(ctx, tx, actorID, "oidc.client.restore", id, "enabled=false")
+	case "interactive":
+		nodeID, err := parseRevokedID(id)
+		if err != nil {
+			return err
+		}
+		var label string
+		err = tx.QueryRow(ctx, `UPDATE interactive_nodes
+			SET revoked_at=NULL, revoked_by=NULL, revoke_reason='', enabled=false, updated_at=now()
+			WHERE id=$1 AND revoked_at IS NOT NULL RETURNING node_type || '.' || node_key`, nodeID).Scan(&label)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			if isUniqueViolation(err) {
+				return ErrEditConflict
+			}
+			return err
+		}
+		return finishRestore(ctx, tx, actorID, "interactive.restore", label, "enabled=false")
 	default:
 		return ErrNotFound
 	}

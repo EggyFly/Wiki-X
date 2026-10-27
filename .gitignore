@@ -3,7 +3,7 @@
 *.class
 *.zip
 target/
-build/
+/build/
 *.iml
 .idea/
 .vscode/

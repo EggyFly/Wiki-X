@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,6 +21,8 @@ import (
 	"github.com/EggyFly/Wiki-X/internal/build"
 	"github.com/EggyFly/Wiki-X/internal/config"
 	gitsource "github.com/EggyFly/Wiki-X/internal/content/gitsource"
+	"github.com/EggyFly/Wiki-X/internal/entityio"
+	mediastore "github.com/EggyFly/Wiki-X/internal/media"
 	"github.com/EggyFly/Wiki-X/internal/search"
 	"github.com/EggyFly/Wiki-X/internal/server"
 	"github.com/EggyFly/Wiki-X/internal/site"
@@ -58,6 +61,10 @@ func main() {
 		err = runAudit(ctx, os.Args[2:])
 	case "search":
 		err = runSearch(ctx, os.Args[2:])
+	case "entity":
+		err = runEntity(ctx, os.Args[2:])
+	case "media":
+		err = runMedia(ctx, os.Args[2:])
 	case "version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -467,6 +474,197 @@ func runSearch(ctx context.Context, args []string) error {
 	return nil
 }
 
+func runEntity(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: wiki_x entity <export|import> [flags]")
+	}
+	switch args[0] {
+	case "export":
+		return runEntityExport(ctx, args[1:])
+	case "import":
+		return runEntityImport(ctx, args[1:])
+	default:
+		return fmt.Errorf("unknown entity command %q", args[0])
+	}
+}
+
+func runEntityExport(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("entity export", flag.ContinueOnError)
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
+	filePath := flags.String("file", "entities.json", "output file")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	data, err := openStore(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer data.Close()
+	doc, err := entityio.Export(ctx, data)
+	if err != nil {
+		return err
+	}
+	encoded, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	encoded = append(encoded, '\n')
+	if err := os.WriteFile(*filePath, encoded, 0o600); err != nil {
+		return err
+	}
+	fmt.Printf("entity export: types=%d entities=%d file=%s\n", len(doc.Types), len(doc.Entities), *filePath)
+	return nil
+}
+
+func runEntityImport(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("entity import", flag.ContinueOnError)
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
+	filePath := flags.String("file", "entities.json", "input file")
+	actorName := flags.String("actor", "", "audit actor user name")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	info, err := os.Stat(*filePath)
+	if err != nil {
+		return err
+	}
+	if info.Size() > 32<<20 {
+		return errors.New("entity file is too large")
+	}
+	raw, err := os.ReadFile(*filePath)
+	if err != nil {
+		return err
+	}
+	var doc entityio.Document
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("parse entity file: %w", err)
+	}
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	data, err := openStore(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer data.Close()
+	var actorID int64
+	if strings.TrimSpace(*actorName) != "" {
+		actor, err := data.UserByName(ctx, strings.TrimSpace(*actorName))
+		if err != nil {
+			return fmt.Errorf("actor %s: %w", *actorName, err)
+		}
+		actorID = actor.ID
+	}
+	result, err := entityio.Import(ctx, data, &doc, actorID)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("entity import: types=%d fields=%d entities=%d\n", result.Types, result.Fields, result.Saved)
+	return nil
+}
+
+func runMedia(ctx context.Context, args []string) error {
+	if len(args) == 0 || args[0] != "thumbs" {
+		return errors.New("usage: wiki_x media thumbs [flags]")
+	}
+	flags := flag.NewFlagSet("media thumbs", flag.ContinueOnError)
+	configPath := flags.String("config", "wiki_x.yaml", "path to config file")
+	force := flags.Bool("force", false, "regenerate thumbnails that already exist")
+	if err := flags.Parse(args[1:]); err != nil {
+		return err
+	}
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	if cfg.Content.Source != "postgres" {
+		return errors.New("media thumbs requires content.source postgres")
+	}
+	if cfg.Media.Storage != "local" {
+		return errors.New("media thumbs only supports media.storage local")
+	}
+	data, err := openStore(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer data.Close()
+	if err := data.Migrate(ctx); err != nil {
+		return err
+	}
+	dir, err := mediastore.NewLocal(cfg.Media.Dir)
+	if err != nil {
+		return err
+	}
+	var afterID int64
+	generated, skipped := 0, 0
+	for {
+		rows, err := data.ListMediaWithoutThumb(ctx, afterID, 100)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		for _, row := range rows {
+			id, err := data.GetMediaID(ctx, row.FileName)
+			if err != nil {
+				return err
+			}
+			afterID = id
+			thumbName := mediastore.ThumbName(row.FileName)
+			if thumbName == "" {
+				continue
+			}
+			if !*force && dir.Has(thumbName) {
+				skipped++
+				continue
+			}
+			file, err := dir.Open(row.FileName)
+			if err != nil {
+				slog.Warn("open media for thumb failed", "file", row.FileName, "err", err)
+				continue
+			}
+			raw, err := io.ReadAll(io.LimitReader(file, cfg.Media.MaxSize+1))
+			file.Close()
+			if err != nil {
+				slog.Warn("read media for thumb failed", "file", row.FileName, "err", err)
+				continue
+			}
+			if int64(len(raw)) > cfg.Media.MaxSize {
+				slog.Warn("media too large for thumb", "file", row.FileName)
+				continue
+			}
+			thumbData, ok := mediastore.MakeThumb(raw, mediastore.DefaultThumbSize)
+			if !ok {
+				skipped++
+				continue
+			}
+			if err := dir.Put(ctx, thumbName, "image/jpeg", thumbData); err != nil {
+				return fmt.Errorf("write thumb %s: %w", thumbName, err)
+			}
+			if _, err := data.EnsureMedia(ctx, thumbName, "image/jpeg", int64(len(thumbData)), 0); err != nil {
+				_ = dir.Delete(ctx, thumbName)
+				return fmt.Errorf("create thumb record %s: %w", thumbName, err)
+			}
+			generated++
+		}
+		maxID, err := data.MaxMediaID(ctx)
+		if err != nil {
+			return err
+		}
+		if afterID >= maxID {
+			break
+		}
+	}
+	fmt.Printf("media thumbs: generated=%d skipped=%d\n", generated, skipped)
+	return nil
+}
+
 func runUser(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: wiki_x user <create|grant> [flags]")
@@ -622,5 +820,5 @@ func gitPullFunc(dir string) func(context.Context) error {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: wiki_x <build|serve|migrate|import|setup|warm|user|audit|search|version> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: wiki_x <build|serve|migrate|import|setup|warm|user|audit|search|entity|media|version> [flags]")
 }

@@ -45,6 +45,7 @@ type App struct {
 	metrics       *metricsRegistry
 	searchClient  *search.Client
 	mediaStore    mediastore.Store
+	mediaMeta     *mediaMetaCache
 	oidc          *oidc.Service
 }
 
@@ -102,6 +103,7 @@ func NewApp(cfg *config.Config, s *site.Site, data *store.Store, authManager *au
 		markdown:      render.NewMarkdownWithRepo(repo),
 		metrics:       newMetrics(),
 		mediaStore:    mediaStore,
+		mediaMeta:     newMediaMetaCache(10000, 10*time.Minute),
 		oidc:          oidcService,
 	}
 	if cfg != nil && cfg.Search.Backend == "meilisearch" {
@@ -151,6 +153,9 @@ func NewApp(cfg *config.Config, s *site.Site, data *store.Store, authManager *au
 
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /robots.txt", a.handleRobots)
+	mux.HandleFunc("GET /sitemap.xml", a.handleSitemap)
+	mux.HandleFunc("GET /feed.xml", a.handleFeed)
 	mux.HandleFunc("GET /assets/", a.handleThemeAsset)
 	if a.site.Switchable() {
 		mux.HandleFunc("GET /-/skin", a.handleSkin)
@@ -251,6 +256,7 @@ func (a *App) Handler() http.Handler {
 		mux.HandleFunc("POST /admin/groups/delete", a.handleAdminGroupDelete)
 		mux.HandleFunc("GET /admin/pages", a.handleAdminPages)
 		mux.HandleFunc("POST /admin/pages/delete", a.handleAdminPageDelete)
+		mux.HandleFunc("POST /admin/pages/rename", a.handleAdminPageRename)
 		mux.HandleFunc("POST /admin/pages/restore", a.handleAdminPageRestore)
 		mux.HandleFunc("GET /admin/entities", a.handleAdminEntities)
 		mux.HandleFunc("POST /admin/entities/types", a.handleAdminEntityTypeCreate)
@@ -279,6 +285,11 @@ func (a *App) Handler() http.Handler {
 			mux.HandleFunc("GET /revision", a.handleRevision)
 			mux.HandleFunc("GET /translations", a.handleTranslations)
 			mux.HandleFunc("GET /entities", a.handleEntities)
+			mux.HandleFunc("GET /widgets/{key}", a.handleWidgetPage)
+			mux.HandleFunc("GET /games/{key}", a.handleGamePage)
+			mux.HandleFunc("GET /admin/interactive", a.handleAdminInteractive)
+			mux.HandleFunc("POST /admin/interactive/save", a.handleAdminInteractiveSave)
+			mux.HandleFunc("POST /admin/interactive/delete", a.handleAdminInteractiveDelete)
 			mux.HandleFunc("GET /review", a.handleReview)
 			mux.HandleFunc("POST /review/approve", a.handleReviewApprove)
 			mux.HandleFunc("POST /review/reject", a.handleReviewReject)
@@ -591,6 +602,12 @@ func (a *App) noticeTextFor(lang, code string) string {
 		return i18n.Text(lang, "notice_page_deleted")
 	case "page_restored":
 		return i18n.Text(lang, "notice_page_restored")
+	case "page_renamed":
+		return i18n.Text(lang, "notice_page_renamed")
+	case "interactive_saved":
+		return i18n.Text(lang, "notice_interactive_saved")
+	case "interactive_deleted":
+		return i18n.Text(lang, "notice_interactive_deleted")
 	case "account_deleted":
 		return i18n.Text(lang, "notice_account_deleted")
 	case "user_deleted":

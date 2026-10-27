@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,15 @@ import (
 )
 
 func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
+	if a.cfg != nil && a.cfg.Search.RateLimitValue() > 0 {
+		window := a.cfg.Search.RateWindowDuration()
+		if !a.allowRate(r.Context(), "search:"+a.requestIP(r), a.cfg.Search.RateLimitValue(), window) {
+			a.metrics.observeRateLimited()
+			w.Header().Set("Retry-After", strconv.Itoa(int(window.Seconds())))
+			http.Error(w, "too many requests", http.StatusTooManyRequests)
+			return
+		}
+	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if runes := []rune(query); len(runes) > 200 {
 		query = string(runes[:200])
@@ -32,8 +42,8 @@ func (a *App) handleSearch(w http.ResponseWriter, r *http.Request) {
 func (a *App) searchPages(ctx context.Context, query string, limit int) []site.SearchResult {
 	backend := "memory"
 	if a.cfg != nil {
-		backend = a.cfg.Search.Backend
-		if backend == "auto" {
+		backend = strings.TrimSpace(a.cfg.Search.Backend)
+		if backend == "" || backend == "auto" {
 			backend = "memory"
 			if a.cfg.Content.Source == "postgres" {
 				backend = "postgres"

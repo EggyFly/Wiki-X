@@ -57,6 +57,9 @@ func (a *App) handleAdminRevokedRestore(w http.ResponseWriter, r *http.Request) 
 		}
 		return
 	}
-	a.reloadSite(r.Context())
+	switch kind {
+	case "entity", "entity_type", "entity_field":
+		a.reloadEntities(r.Context())
+	}
 	a.redirect(w, r, "/admin/revoked?notice=revoked_restored", http.StatusSeeOther)
 }

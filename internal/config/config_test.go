@@ -186,6 +186,25 @@ func TestLoadRateLimitConfig(t *testing.T) {
 	}
 }
 
+func TestSearchAndMediaRateLimitDefaults(t *testing.T) {
+	path := writeConfig(t, "site:\n  title: Test\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Search.RateLimitValue() != 30 || cfg.Media.RateLimitValue() != 600 {
+		t.Fatalf("defaults = %d, %d", cfg.Search.RateLimitValue(), cfg.Media.RateLimitValue())
+	}
+	path = writeConfig(t, "site:\n  title: Test\nsearch:\n  rate_limit: 0\nmedia:\n  rate_limit: 0\n")
+	cfg, err = Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Search.RateLimitValue() != 0 || cfg.Media.RateLimitValue() != 0 {
+		t.Fatalf("disabled = %d, %d", cfg.Search.RateLimitValue(), cfg.Media.RateLimitValue())
+	}
+}
+
 func TestLoadSearchConfig(t *testing.T) {
 	path := writeConfig(t, "search:\n  backend: memory\n")
 	cfg, err := Load(path)

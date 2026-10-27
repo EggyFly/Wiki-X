@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/EggyFly/Wiki-X/internal/auth"
@@ -18,7 +19,7 @@ import (
 	"github.com/EggyFly/Wiki-X/internal/store"
 )
 
-var mediaNamePattern = regexp.MustCompile(`^([a-f0-9]{32}|pr-[a-f0-9]{16})\.(png|jpg|gif|webp|wav|mp3|ogg|flac)$`)
+var mediaNamePattern = regexp.MustCompile(`^(t-)?([a-f0-9]{32}|pr-[a-f0-9]{16})\.(png|jpg|gif|webp|wav|mp3|ogg|flac)$`)
 
 var mediaContentTypes = map[string]string{
 	".png":  "image/png",
@@ -98,11 +99,31 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存文件失败"})
 		return
 	}
-	if _, err := a.store.CreateMedia(r.Context(), name, contentType, int64(len(data)), session.User.ID); err != nil {
+	media, err := a.store.CreateMedia(r.Context(), name, contentType, int64(len(data)), session.User.ID)
+	if err != nil {
 		_ = a.mediaStore.Delete(r.Context(), name)
 		slog.Error("create media record failed", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "保存文件失败"})
 		return
+	}
+	a.mediaMeta.Put(name, media)
+
+	thumbURL := ""
+	if strings.HasPrefix(contentType, "image/") {
+		if thumbData, ok := mediastore.MakeThumb(data, mediastore.DefaultThumbSize); ok {
+			thumbName := mediastore.ThumbName(name)
+			if thumbName != "" {
+				if err := a.mediaStore.Put(r.Context(), thumbName, "image/jpeg", thumbData); err != nil {
+					slog.Warn("save media thumb failed", "err", err)
+				} else if thumbRecord, err := a.store.CreateMedia(r.Context(), thumbName, "image/jpeg", int64(len(thumbData)), session.User.ID); err != nil {
+					_ = a.mediaStore.Delete(r.Context(), thumbName)
+					slog.Warn("create media thumb record failed", "err", err)
+				} else {
+					a.mediaMeta.Put(thumbName, thumbRecord)
+					thumbURL = "/media/" + thumbName
+				}
+			}
+		}
 	}
 
 	url := "/media/" + name
@@ -110,13 +131,26 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(contentType, "audio/") {
 		markdown = "[音频](" + url + ")"
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{
+	result := map[string]string{
 		"url":      url,
 		"markdown": markdown,
-	})
+	}
+	if thumbURL != "" {
+		result["thumb_url"] = thumbURL
+	}
+	writeJSON(w, http.StatusCreated, result)
 }
 
 func (a *App) handleMedia(w http.ResponseWriter, r *http.Request) {
+	if a.cfg != nil && a.cfg.Media.RateLimitValue() > 0 {
+		window := a.cfg.Media.RateWindowDuration()
+		if !a.allowRate(r.Context(), "media:"+a.requestIP(r), a.cfg.Media.RateLimitValue(), window) {
+			a.metrics.observeRateLimited()
+			w.Header().Set("Retry-After", strconv.Itoa(int(window.Seconds())))
+			http.Error(w, "too many requests", http.StatusTooManyRequests)
+			return
+		}
+	}
 	if a.cfg != nil && a.cfg.Content.Source == "postgres" {
 		a.handleUploadedMedia(w, r)
 		return
@@ -165,15 +199,29 @@ func (a *App) handleUploadedMedia(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	media, err := a.store.GetMedia(r.Context(), name)
-	if errors.Is(err, store.ErrNotFound) {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		slog.Error("get media failed", "err", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+	requestedName := name
+	media, ok := a.mediaMeta.Get(name)
+	if !ok {
+		var err error
+		media, err = a.store.GetMedia(r.Context(), name)
+		if errors.Is(err, store.ErrNotFound) && strings.HasPrefix(name, "t-") {
+			stem := strings.TrimSuffix(strings.TrimPrefix(name, "t-"), ".jpg")
+			media, err = a.store.GetMediaByStem(r.Context(), stem)
+			if err == nil {
+				name = media.FileName
+			}
+		}
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			slog.Error("get media failed", "err", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		a.mediaMeta.Put(requestedName, media)
+		a.mediaMeta.Put(name, media)
 	}
 	if a.mediaStore == nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)

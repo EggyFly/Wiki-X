@@ -10,23 +10,25 @@ import (
 )
 
 const (
-	SectionPage       = "page"
-	SectionUser       = "user"
-	SectionGroup      = "group"
-	SectionEntity     = "entity"
-	SectionInvite     = "invite"
-	SectionOIDCClient = "oidc_client"
-	SectionWatchlist  = "watchlist"
+	SectionPage        = "page"
+	SectionUser        = "user"
+	SectionGroup       = "group"
+	SectionEntity      = "entity"
+	SectionInvite      = "invite"
+	SectionOIDCClient  = "oidc_client"
+	SectionWatchlist   = "watchlist"
+	SectionInteractive = "interactive"
 )
 
 var sectionSet = map[string]bool{
-	SectionPage:       true,
-	SectionUser:       true,
-	SectionGroup:      true,
-	SectionEntity:     true,
-	SectionInvite:     true,
-	SectionOIDCClient: true,
-	SectionWatchlist:  true,
+	SectionPage:        true,
+	SectionUser:        true,
+	SectionGroup:       true,
+	SectionEntity:      true,
+	SectionInvite:      true,
+	SectionOIDCClient:  true,
+	SectionWatchlist:   true,
+	SectionInteractive: true,
 }
 
 type Policy struct {
